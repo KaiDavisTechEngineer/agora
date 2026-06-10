@@ -231,13 +231,6 @@ def _ast_size(ast):
     return 1 + sum(_ast_size(a) for a in ast["args"])
 
 
-# A reusable "a XOR b" gadget, expressed in and/or/not (the only ops we allow).
-def _xor(a, b):
-    return {"op": "or", "args": [
-        {"op": "and", "args": [a, {"op": "not", "args": [b]}]},
-        {"op": "and", "args": [{"op": "not", "args": [a]}, b]}]}
-
-
 # named target specs: (k vars, truth-table fn, a minimal reference formula).
 # The reference is the yardstick for optimum_estimate() and the "minimal beats
 # bloated" test — every reference below is fully correct AND as small as we know how.
@@ -253,8 +246,21 @@ _TARGETS = {
                       {"op": "and", "args": [{"op": "not", "args": [{"var": "a"}]}, {"var": "c"}]}]}),  # ref size 4
     "and3":      (3, lambda e: e["a"] and e["b"] and e["c"],
                   {"op": "and", "args": [{"var": "a"}, {"var": "b"}, {"var": "c"}]}),  # ref size 1
+    # ref size 11 — DISCOVERED by a real agora colony (Sonnet proposers) and proven
+    # equivalent by Z3, beating the hand-written 15-op XOR-of-XOR expansion. Promoted
+    # to the canonical reference so optimum_estimate reflects a truly achievable minimum.
     "parity3":   (3, lambda e: (e["a"] + e["b"] + e["c"]) % 2 == 1,
-                  _xor(_xor({"var": "a"}, {"var": "b"}), {"var": "c"})),  # ref size 15
+                  {"op": "or", "args": [
+                      {"op": "and", "args": [
+                          {"op": "or", "args": [{"var": "a"}, {"var": "b"}]},
+                          {"op": "not", "args": [{"op": "and", "args": [{"var": "a"}, {"var": "b"}]}]},
+                          {"op": "not", "args": [{"var": "c"}]}]},
+                      {"op": "and", "args": [
+                          {"op": "not", "args": [{"op": "or", "args": [{"var": "a"}, {"var": "b"}]}]},
+                          {"var": "c"}]},
+                      {"op": "and", "args": [
+                          {"op": "and", "args": [{"var": "a"}, {"var": "b"}]},
+                          {"var": "c"}]}]}),
 }
 
 
