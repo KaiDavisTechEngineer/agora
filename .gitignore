@@ -12,6 +12,8 @@ colony_state.json
 best_curve.csv
 evolve_log.jsonl
 evolve_state.json
+genome.json
+genome.json.tmp
 runs/
 STOP
 

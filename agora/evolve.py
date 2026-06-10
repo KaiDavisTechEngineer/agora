@@ -44,6 +44,35 @@ def baseline_genome(roster: list[str]) -> dict:
     return {r: get_role(r).flavor for r in proposer_roles(roster)}
 
 
+# ----------------------------------------------------- genome persistence
+# genome.json lets improvements ACCUMULATE across separate invocations: each run
+# loads the evolved genome (or baseline if none yet), improves it, and saves it.
+def load_genome(path, roster):
+    """Load the persisted genome, falling back to baseline flavors. Only proposer
+    roles present in the current roster are kept, so the roster can change safely."""
+    base = baseline_genome(roster)
+    if not path or not os.path.exists(path):
+        return {"genome": base, "rotation_index": 0, "history": [], "battery": None}
+    with open(path) as f:
+        data = json.load(f)
+    genome = dict(base)
+    genome.update({k: v for k, v in data.get("genome", {}).items() if k in base})
+    return {"genome": genome,
+            "rotation_index": int(data.get("rotation_index", 0)),
+            "history": list(data.get("history", [])),
+            "battery": data.get("battery")}
+
+
+def save_genome(path, genome, rotation_index, history, battery, history_keep=20):
+    """Atomically persist genome + rotation index + a short accepted-change history."""
+    data = {"genome": genome, "rotation_index": rotation_index,
+            "history": history[-history_keep:], "battery": battery}
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)   # atomic — safe if killed mid-write
+
+
 # ------------------------------------------------------------------- fitness
 def is_improvement(new_fit, old_fit) -> bool:
     """STRICT, lexicographic: more verified wins, or equal wins + higher score.
@@ -132,11 +161,13 @@ def _mutate_flavor(role: str, flavor: str, step: int, real: bool, cost, gen_mode
 def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
            inner_agents=None, seed=7, out_dir="runs",
            evolve_log="evolve_log.jsonl", quiet=False, cost=None,
-           oracle_name="formula", roster=None):
+           oracle_name="formula", roster=None, genome_path=None):
     """Run the self-improvement meta-loop. Returns a summary dict.
 
     `cost` lets a caller (or test) pass in a pre-existing shared CostTracker so the
-    cap spans this AND other work — a true global budget."""
+    cap spans this AND other work — a true global budget. `genome_path`, if given,
+    LOADS the persisted genome at start and SAVES the improved one at the end so
+    gains accumulate across runs."""
     battery = battery or list(DEFAULT_BATTERY)
     roster = roster or FORMAL_ROSTER
     inner_agents = inner_agents or len(roster)
@@ -150,7 +181,10 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
         quiet=True,
     )
     proposers = proposer_roles(roster)
-    genome = baseline_genome(roster)
+    loaded = load_genome(genome_path, roster) if genome_path else None
+    genome = loaded["genome"] if loaded else baseline_genome(roster)
+    history = loaded["history"] if loaded else []
+    rot = loaded["rotation_index"] if loaded else 0
     elog.emit("baseline_genome", genome=genome, battery=battery,
               roster=roster, real=real)
     if not quiet:
@@ -188,6 +222,9 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
                                         oracle_name=oracle_name, out_dir=out_dir,
                                         elog=elog, quiet=quiet)
         if is_improvement(cand_fit, best_fit):
+            history.append({"target": "battery", "role": role,
+                            "before_fitness": list(best_fit), "after_fitness": list(cand_fit),
+                            "before": before, "after": after})
             genome, best_fit = cand, cand_fit
             accepted += 1
             decision = "ACCEPT"
@@ -200,6 +237,8 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
             tag = "[ACCEPT]" if decision == "ACCEPT" else "[reject]"
             print(f"{tag} step {step} role={role}: cand={cand_fit} best={best_fit}")
 
+    if genome_path:
+        save_genome(genome_path, genome, rot, history, battery)
     result = {
         "steps_run": min(steps, step if steps else 0),
         "accepted": accepted,
@@ -211,6 +250,7 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
         "cost": cost.as_dict(),
         "evolve_log": evolve_log,
         "battery": battery,
+        "genome_path": genome_path,
     }
     elog.emit("final", **result)
     if not quiet:
@@ -223,23 +263,127 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
     return result
 
 
+def trickle(genome_path="genome.json", cap=0.50, real=False, battery=None,
+            inner_cycles=2, inner_agents=None, seed=7, out_dir="runs",
+            evolve_log="evolve_log.jsonl", quiet=False, cost=None,
+            oracle_name="formula", roster=None):
+    """A gentle, ACCUMULATING entry point: exactly ONE attempt per invocation.
+
+    Loads the persisted genome, rotates to ONE target, evaluates the current genome
+    and ONE mutated variant on just that target, keeps the mutation only if it is a
+    verifier-gated improvement (more verified, ties by score), then saves genome.json.
+    Same gate as the full meta-loop — only cheaper and incremental."""
+    roster = roster or FORMAL_ROSTER
+    inner_agents = inner_agents or len(roster)
+    os.makedirs(out_dir, exist_ok=True)
+    cost = cost or CostTracker(cap)
+    elog = EvolveLog(evolve_log)
+
+    loaded = load_genome(genome_path, roster)
+    genome = loaded["genome"]
+    history = loaded["history"]
+    rot = loaded["rotation_index"]
+    battery = battery or loaded["battery"] or list(DEFAULT_BATTERY)
+    proposers = proposer_roles(roster)
+    target = battery[rot % len(battery)]          # rotate the target each invocation
+    role = proposers[rot % len(proposers)]        # ... and which proposer we nudge
+
+    base_cfg = Config(n_agents=inner_agents, roster=roster, n_cycles=inner_cycles,
+                      patience=inner_cycles, spend_cap_usd=cap, use_mock=not real,
+                      seed=seed, quiet=True)
+    elog.emit("trickle_start", target=target, role=role, rotation_index=rot,
+              genome=genome, real=real)
+    if not quiet:
+        print(f"[trickle] target={target} nudge={role} rot={rot} "
+              f"cap=${cap:.2f} mode={'REAL' if real else 'MOCK'}")
+
+    # 1) current genome on the one rotated target
+    cur_fit, halted, _ = _evaluate(genome, rot, "trickle_cur", battery=[target],
+                                   cost=cost, base_cfg=base_cfg, oracle_name=oracle_name,
+                                   out_dir=out_dir, elog=elog, quiet=quiet)
+    before = genome[role]
+    after = before
+    cand_fit = cur_fit
+    accepted = False
+    # 2) ONE mutated variant on the SAME target (skip if the budget is already spent)
+    if not halted:
+        try:
+            after = _mutate_flavor(role, before, rot, real, cost, base_cfg.gen_model)
+            cand = dict(genome)
+            cand[role] = after
+            elog.emit("mutation", step=rot, role=role, before=before, after=after)
+            cand_fit, halted, _ = _evaluate(cand, rot, "trickle_cand", battery=[target],
+                                            cost=cost, base_cfg=base_cfg,
+                                            oracle_name=oracle_name, out_dir=out_dir,
+                                            elog=elog, quiet=quiet)
+            if is_improvement(cand_fit, cur_fit):     # the SAME verifier-gate
+                genome = cand
+                accepted = True
+                history.append({"target": target, "role": role,
+                                "before_fitness": list(cur_fit), "after_fitness": list(cand_fit),
+                                "before": before, "after": after})
+        except SpendCapExceeded:
+            halted = True
+
+    rot_next = rot + 1                                  # advance rotation for next time
+    save_genome(genome_path, genome, rot_next, history, battery)
+    decision = "ACCEPT" if accepted else ("HALT" if halted else "reject")
+    elog.emit("decision", step=rot, decision=decision, role=role, target=target,
+              cur_fitness=list(cur_fit), cand_fitness=list(cand_fit))
+
+    result = {
+        "target": target, "role": role, "accepted": accepted, "halted": halted,
+        "cur_fitness": list(cur_fit), "cand_fitness": list(cand_fit),
+        "rotation_index": rot_next, "genome": genome, "history": history,
+        "cost": cost.as_dict(), "genome_path": genome_path,
+    }
+    if not quiet:
+        tag = "[ACCEPT]" if accepted else ("[HALT]" if halted else "[reject]")
+        print(f"{tag} target={target} role={role}: cur={cur_fit} cand={cand_fit}")
+        print(f"        saved {genome_path} (rot->{rot_next})  "
+              f"spend ${cost.usd:.4f}/${cap:.2f}")
+    return result
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="agora #6: verifier-gated self-improvement")
+    p.add_argument("--trickle", action="store_true",
+                   help="cheap ACCUMULATING mode: exactly ONE attempt on one rotated "
+                        "target, persisting to genome.json (defaults to real, tiny, $0.50 cap)")
     p.add_argument("--steps", type=int, default=4)
-    p.add_argument("--cap", type=float, default=5.00, help="GLOBAL spend cap (USD)")
+    p.add_argument("--cap", type=float, default=None,
+                   help="GLOBAL spend cap USD (default 5.00; trickle default 0.50)")
     p.add_argument("--real", action="store_true", help="use real Claude (needs ANTHROPIC_API_KEY)")
+    p.add_argument("--mock", action="store_true", help="force mock (overrides trickle's real default)")
     p.add_argument("--battery", default=",".join(DEFAULT_BATTERY),
                    help="comma-separated formula targets")
-    p.add_argument("--cycles", type=int, default=8, help="inner colony cycles per run")
+    p.add_argument("--cycles", type=int, default=None,
+                   help="inner colony cycles per run (default 8; trickle default 2)")
     p.add_argument("--agents", type=int, default=None, help="inner agents (default roster size)")
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--out-dir", default="runs")
     p.add_argument("--evolve-log", default="evolve_log.jsonl")
+    p.add_argument("--genome", default="genome.json", help="persisted evolved genome file")
     args = p.parse_args(argv)
-    evolve(steps=args.steps, cap=args.cap, real=args.real,
-           battery=[t.strip() for t in args.battery.split(",") if t.strip()],
-           inner_cycles=args.cycles, inner_agents=args.agents, seed=args.seed,
-           out_dir=args.out_dir, evolve_log=args.evolve_log)
+    battery = [t.strip() for t in args.battery.split(",") if t.strip()]
+
+    if args.trickle:
+        # gentle defaults: real API, tiny + cheap, one attempt
+        real = not args.mock
+        trickle(genome_path=args.genome, cap=args.cap if args.cap is not None else 0.50,
+                real=real, battery=battery,
+                inner_cycles=args.cycles if args.cycles is not None else 2,
+                inner_agents=args.agents, seed=args.seed,
+                out_dir=args.out_dir, evolve_log=args.evolve_log)
+    else:
+        evolve(steps=args.steps,
+               cap=args.cap if args.cap is not None else 5.00,
+               real=args.real and not args.mock,
+               battery=battery,
+               inner_cycles=args.cycles if args.cycles is not None else 8,
+               inner_agents=args.agents, seed=args.seed,
+               out_dir=args.out_dir, evolve_log=args.evolve_log,
+               genome_path=args.genome)
 
 
 if __name__ == "__main__":
