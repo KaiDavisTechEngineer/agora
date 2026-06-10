@@ -19,9 +19,14 @@ from .colony import Colony
 def main(argv=None):
     p = argparse.ArgumentParser(description="agora co-scientist colony")
     p.add_argument("--oracle", default="rotary", choices=["rotary", "repurposing", "formula"])
-    p.add_argument("--target", default="majority3",
-                   choices=["majority3", "mux", "and3", "parity3"],
-                   help="formula-oracle target (only used with --oracle formula)")
+    p.add_argument("--target", default=None,
+                   choices=["majority3", "mux", "and3", "parity3",
+                            "parity4", "majority5", "parity5"],
+                   help="formula-oracle target (only used with --oracle formula); "
+                        "if omitted, picked from --difficulty")
+    p.add_argument("--difficulty", type=int, default=1, choices=[1, 2, 3],
+                   help="formula difficulty: 1=k3 (easy), 2=k4, 3=k5 (hard). "
+                        "Selects the target when --target is not given.")
     p.add_argument("--agents", type=int, default=None,
                    help="agent count; defaults to the roster size (so every role is filled)")
     p.add_argument("--k-peers", type=int, default=3)
@@ -43,13 +48,16 @@ def main(argv=None):
     roster = {"quant": QUANT_ROSTER, "formal": FORMAL_ROSTER}.get(args.roster)
     # default agent count = roster size, so every named role is actually filled
     n_agents = args.agents if args.agents is not None else (len(roster) if roster else 3)
-    oracle_kwargs = {"target": args.target} if args.oracle == "formula" else {}
+    # target precedence: explicit --target wins; otherwise pick by --difficulty
+    from .oracles import default_target
+    target = args.target if args.target is not None else default_target(args.difficulty)
+    oracle_kwargs = {"target": target} if args.oracle == "formula" else {}
     cfg = Config(
         n_agents=n_agents, k_peers=args.k_peers, n_cycles=args.cycles,
         patience=args.patience, spend_cap_usd=args.cap, use_mock=not args.real,
         enable_revision=not args.no_revision, resume=not args.fresh,
         seed=args.seed, state_file=args.state_file, log_candidates=not args.quiet_log,
-        roster=roster, oracle_kwargs=oracle_kwargs,
+        roster=roster, oracle_kwargs=oracle_kwargs, difficulty=args.difficulty,
     )
     Colony(cfg, oracle_name=args.oracle).run()
 

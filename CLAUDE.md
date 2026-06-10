@@ -69,7 +69,13 @@ verifiable oracles return a real `bool`).
 
 `FormulaSynthesisOracle` specifics:
 - Candidate = nested AST: `{"op":"and|or|not","args":[...]}` and `{"var":"a"}`.
-- Targets (truth tables over k vars): `majority3`, `mux`, `and3`, `parity3`.
+- Targets (truth tables over k vars), grouped by a **difficulty** knob (`oracles.DIFFICULTY`,
+  `--difficulty {1,2,3}`): **d1 (k=3)** `majority3`, `mux`, `and3`, `parity3`; **d2 (k=4)**
+  `parity4`; **d3 (k=5)** `majority5`, `parity5`. `--difficulty` selects the target when
+  `--target` is omitted (d1 → `majority3`, the historic default). k≥4 references are built
+  programmatically (`_xor_fold`/`_threshold_ref`) so they can't be silently wrong, and given
+  parsimony headroom (per-target `max_ops`; the original four stay at 20). `oracles.BENCHMARKS`
+  is a small battery of known-verifiable correct/incorrect answers per target.
 - `score` = fraction of truth-table rows correct × 100; once **fully** correct, adds a
   parsimony bonus `max_ops - formula_size` so minimality is rewarded.
 - `verify` = **Z3** proves equivalence (`assert formula != spec; unsat ⇒ equivalent`),

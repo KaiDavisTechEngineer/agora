@@ -12,6 +12,7 @@ pretending to do real science.
 """
 from __future__ import annotations
 import json, random
+from itertools import combinations
 from abc import ABC, abstractmethod
 
 
@@ -231,21 +232,74 @@ def _ast_size(ast):
     return 1 + sum(_ast_size(a) for a in ast["args"])
 
 
-# named target specs: (k vars, truth-table fn, a minimal reference formula).
+# --- AST builder helpers ----------------------------------------------------
+# Used to construct reference formulas for the harder (k>=4) targets PROGRAMMATICALLY
+# instead of by hand, so a reference cannot be silently wrong. Every node they emit
+# has <= 2 args and bounded depth, so it survives normalize()/_coerce() unchanged
+# (which caps and/or at 4 args and depth at 12).
+def _v(name):
+    return {"var": name}
+
+
+def _not(x):
+    return {"op": "not", "args": [x]}
+
+
+def _bin(op, x, y):
+    return {"op": op, "args": [x, y]}
+
+
+def _xor(x, y):
+    """x XOR y = (x OR y) AND NOT(x AND y) — all binary nodes."""
+    return _bin("and", _bin("or", x, y), _not(_bin("and", x, y)))
+
+
+def _fold(op, items):
+    """Fold a list into a balanced BINARY tree of `op` nodes (<=2 args/node)."""
+    items = list(items)
+    if len(items) == 1:
+        return items[0]
+    mid = len(items) // 2
+    return _bin(op, _fold(op, items[:mid]), _fold(op, items[mid:]))
+
+
+def _xor_fold(items):
+    """Balanced binary XOR-reduction over the variables — the parity reference."""
+    items = list(items)
+    if len(items) == 1:
+        return items[0]
+    mid = len(items) // 2
+    return _xor(_xor_fold(items[:mid]), _xor_fold(items[mid:]))
+
+
+def _parity_ref(vs):
+    return _xor_fold([_v(v) for v in vs])
+
+
+def _threshold_ref(vs, threshold):
+    """OR over every `threshold`-subset of POSITIVE literals. Correct for monotone
+    threshold (>= threshold true) since some subset is all-true iff the count is met."""
+    terms = [_fold("and", [_v(v) for v in combo]) for combo in combinations(vs, threshold)]
+    return _fold("or", terms)
+
+
+# named target specs: (k vars, truth-table fn, a reference formula, default max_ops).
 # The reference is the yardstick for optimum_estimate() and the "minimal beats
-# bloated" test — every reference below is fully correct AND as small as we know how.
+# bloated" test. The original k=3 references are hand-minimized (max_ops 20 preserves
+# their historical scores); the k>=4 references are built programmatically and given
+# headroom (ref_size + 8) so parsimony stays a live objective at higher difficulty.
 _TARGETS = {
     "majority3": (3, lambda e: (e["a"] + e["b"] + e["c"]) >= 2,
                   {"op": "or", "args": [
                       {"op": "and", "args": [{"var": "a"}, {"var": "b"}]},
                       {"op": "and", "args": [{"var": "a"}, {"var": "c"}]},
-                      {"op": "and", "args": [{"var": "b"}, {"var": "c"}]}]}),  # ref size 5
+                      {"op": "and", "args": [{"var": "b"}, {"var": "c"}]}]}, 20),  # ref size 5
     "mux":       (3, lambda e: (e["b"] if e["a"] else e["c"]),
                   {"op": "or", "args": [
                       {"op": "and", "args": [{"var": "a"}, {"var": "b"}]},
-                      {"op": "and", "args": [{"op": "not", "args": [{"var": "a"}]}, {"var": "c"}]}]}),  # ref size 4
+                      {"op": "and", "args": [{"op": "not", "args": [{"var": "a"}]}, {"var": "c"}]}]}, 20),  # ref size 4
     "and3":      (3, lambda e: e["a"] and e["b"] and e["c"],
-                  {"op": "and", "args": [{"var": "a"}, {"var": "b"}, {"var": "c"}]}),  # ref size 1
+                  {"op": "and", "args": [{"var": "a"}, {"var": "b"}, {"var": "c"}]}, 20),  # ref size 1
     # ref size 11 — DISCOVERED by a real agora colony (Sonnet proposers) and proven
     # equivalent by Z3, beating the hand-written 15-op XOR-of-XOR expansion. Promoted
     # to the canonical reference so optimum_estimate reflects a truly achievable minimum.
@@ -260,17 +314,77 @@ _TARGETS = {
                           {"var": "c"}]},
                       {"op": "and", "args": [
                           {"op": "and", "args": [{"var": "a"}, {"var": "b"}]},
-                          {"var": "c"}]}]}),
+                          {"var": "c"}]}]}, 20),
+    # --- harder, still-decidable targets (frontier #1 difficulty extension) ----
+    # parity4: 4-input XOR (odd parity). Reference = balanced XOR-reduction (size 20).
+    "parity4":   (4, lambda e: (e["a"] + e["b"] + e["c"] + e["d"]) % 2 == 1,
+                  _parity_ref(_vars(4)), 28),
+    # parity5: 5-input XOR — the deepest target (XOR-tree depth ~9, under the cap).
+    "parity5":   (5, lambda e: (e["a"] + e["b"] + e["c"] + e["d"] + e["e"]) % 2 == 1,
+                  _parity_ref(_vars(5)), 52),
+    # majority5: at least 3 of 5 inputs true. Reference = OR of all 3-subsets (size 29).
+    "majority5": (5, lambda e: (e["a"] + e["b"] + e["c"] + e["d"] + e["e"]) >= 3,
+                  _threshold_ref(_vars(5), 3), 36),
 }
+
+
+# --- difficulty knob --------------------------------------------------------
+# Difficulty groups targets by how hard the search is (variable count / structure).
+# It is a SELECTOR over the verifiable targets above — every target, at every
+# difficulty, is still Oracle-checked by Z3. Nothing about the gate changes.
+DIFFICULTY = {
+    1: ["majority3", "mux", "and3", "parity3"],   # k=3, easy (majority3 = historic default)
+    2: ["parity4"],                               # k=4
+    3: ["majority5", "parity5"],                  # k=5, hardest
+}
+
+
+def difficulty_of(target: str) -> int:
+    for d, ts in DIFFICULTY.items():
+        if target in ts:
+            return d
+    return 1
+
+
+def targets_at(difficulty: int) -> list:
+    return list(DIFFICULTY.get(difficulty, []))
+
+
+def default_target(difficulty: int) -> str:
+    """The canonical target for a difficulty level (first in the group)."""
+    ts = targets_at(difficulty)
+    return ts[0] if ts else "majority3"
+
+
+# --- benchmark set ----------------------------------------------------------
+# A small battery with KNOWN-VERIFIABLE answers: each entry pairs a target with a
+# formula Z3 must ACCEPT (the reference) and one it must REJECT. {"var":"a"} is a
+# universal wrong answer for every target here (it disagrees with the spec on at
+# least one row for majority/mux/and/parity over k>=3 vars).
+BENCHMARKS = [
+    {"target": t, "difficulty": difficulty_of(t),
+     "correct": _TARGETS[t][2], "incorrect": {"var": "a"}}
+    for t in ["and3", "mux", "majority3", "parity3", "parity4", "majority5", "parity5"]
+]
+
+
+def benchmark(target: str) -> dict:
+    for b in BENCHMARKS:
+        if b["target"] == target:
+            return b
+    raise KeyError(f"no benchmark for target '{target}'")
 
 
 class FormulaSynthesisOracle(Oracle):
     name = "formula"
 
-    def __init__(self, target="majority3", max_ops=20):
-        self.k, self._fn, self._ref = _TARGETS[target]
+    def __init__(self, target="majority3", max_ops=None):
+        self.k, self._fn, self._ref, default_max_ops = _TARGETS[target]
+        self.target = target
         self.vars = _vars(self.k)
-        self.max_ops = max_ops
+        # explicit max_ops wins; otherwise use the per-target default (gives the
+        # harder targets parsimony headroom while preserving the original 4 at 20).
+        self.max_ops = max_ops if max_ops is not None else default_max_ops
         # precompute the target truth table over 2^k assignments
         self.table = []
         for bits in range(2 ** self.k):

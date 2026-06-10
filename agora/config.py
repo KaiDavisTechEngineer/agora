@@ -21,6 +21,9 @@ class Config:
     survivor_frac: float = 0.4   # top fraction that seeds shared memory
     roster: list[str] | None = None  # explicit role lineup; None = base proposers round-robin
 
+    # --- difficulty (frontier #1: how hard a verifiable target to attempt) ---
+    difficulty: int = 1          # 1=k3 (easy) .. 3=k5 (hard); selects formula targets
+
     # --- pluggability (used by the self-improvement meta-loop, #6) ---
     oracle_kwargs: dict = field(default_factory=dict)     # passed to the Oracle constructor
     flavor_overrides: dict = field(default_factory=dict)  # role_name -> flavor; the evolvable "genome"
