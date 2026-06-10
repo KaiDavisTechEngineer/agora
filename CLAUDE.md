@@ -90,6 +90,18 @@ the cap is a single global budget; crossing it halts the battery mid-stream.
 > mutating flavors never changes fitness and the gate **correctly accepts nothing** —
 > that is the gate working. Real agents read the flavor; that is where the genome evolves.
 
+**Trickle mode** (`evolve.trickle`, `python -m agora.evolve --trickle`) is a gentle,
+*accumulating* entry point: exactly **one** attempt per invocation. It loads the
+persisted genome from `genome.json`, rotates to **one** target (rotation index lives
+in `genome.json`), evaluates the current genome and one mutated variant on just that
+target, keeps the mutation only on a **strict verifier-gated improvement** (the same
+gate), then saves `genome.json` (genome + rotation index + a short accepted-change
+history). Defaults are tiny and cheap — 1 attempt, small inner cycles, real API, a
+`$0.50` hard cap — so improvements can drip in over many cheap runs without ever
+weakening the gate. The full meta-loop is unchanged; pass `genome_path=` to `evolve()`
+to make it accumulate too. `genome.json` is git-ignored generated state (force-add it
+to snapshot an evolved genome).
+
 ## #5 interpretability (`interpret.py`)
 
 Behavioral (from logs, not model internals): verified wins attributed by authoring role;
@@ -122,6 +134,8 @@ touch STOP                                              # halt a running colony 
 # REAL Claude — SPENDS MONEY. Always capped. Ask before running.
 python -m agora.run --real --oracle formula --roster formal --cap 1.00
 python -m agora.evolve --real --cap 5.00 --steps 4
+python -m agora.evolve --trickle          # one cheap accumulating attempt (real, $0.50 cap)
+python -m agora.evolve --trickle --mock   # dry-run the trickle attempt for free
 ```
 
 ## Conventions
