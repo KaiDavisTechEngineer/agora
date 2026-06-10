@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 # Current Anthropic list prices, USD per 1M tokens: (input, output)
 PRICES: dict[str, tuple[float, float]] = {
+    "claude-fable-5":            (10.00, 50.00),
     "claude-opus-4-8":           (5.00, 25.00),
     "claude-sonnet-4-6":         (3.00, 15.00),
     "claude-haiku-4-5-20251001": (1.00,  5.00),
@@ -11,6 +12,9 @@ PRICES: dict[str, tuple[float, float]] = {
 
 GEN_MODEL   = "claude-sonnet-4-6"           # generate / revise -> real reasoning
 GRUNT_MODEL = "claude-haiku-4-5-20251001"   # critique / summarize -> cheap
+
+# The three role-KINDS that can each be assigned their own model (Phase 2).
+ROLE_KINDS = ("proposer", "critic", "validator")
 
 
 @dataclass
@@ -20,6 +24,12 @@ class Config:
     k_peers: int = 3             # BOUNDED critique. Keep small (3-5) so cost stays O(N).
     survivor_frac: float = 0.4   # top fraction that seeds shared memory
     roster: list[str] | None = None  # explicit role lineup; None = base proposers round-robin
+
+    # --- per-role-kind model selection (#2) ---
+    # role-kind -> model id. None = single-model behaviour derived from the gen/grunt
+    # tiers (proposer=gen_model, critic/validator=grunt_model) — see resolve_role_models.
+    # A partial dict is allowed; unset kinds fall back to that default.
+    role_models: dict | None = None
 
     # --- difficulty (frontier #1: how hard a verifiable target to attempt) ---
     difficulty: int = 1          # 1=k3 (easy) .. 3=k5 (hard); selects formula targets
@@ -53,3 +63,31 @@ class Config:
 
     gen_model: str = GEN_MODEL
     grunt_model: str = GRUNT_MODEL
+
+
+def resolve_role_models(cfg: "Config") -> dict:
+    """Map each role-KIND to the model that does its work.
+
+    The DEFAULT reproduces the historical single-/two-tier behaviour EXACTLY:
+      proposer  -> gen_model   (generate + revise — real reasoning)
+      critic    -> grunt_model (critique — cheap)
+      validator -> grunt_model (audit — cheap)
+    `cfg.role_models` overrides per kind (partial dicts allowed). Every model the
+    colony bills must be priced, so an unknown kind or an unpriced model is a config
+    error (ValueError) — caught at construction, never silently mischarged.
+
+    The model a role-kind uses is ORTHOGONAL to the Z3 verifier gate: which model
+    proposed or audited a candidate never changes whether the Oracle verifies it.
+    """
+    base = {"proposer": cfg.gen_model, "critic": cfg.grunt_model,
+            "validator": cfg.grunt_model}
+    for kind, model in (cfg.role_models or {}).items():
+        if kind not in base:
+            raise ValueError(
+                f"unknown role-kind '{kind}' in role_models; expected one of {ROLE_KINDS}")
+        if model not in PRICES:
+            raise ValueError(
+                f"model '{model}' for role-kind '{kind}' has no price entry; "
+                f"known: {sorted(PRICES)}")
+        base[kind] = model
+    return base

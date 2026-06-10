@@ -17,7 +17,7 @@ or an external STOP file. State is saved every cycle so runs resume.
 from __future__ import annotations
 import os, json, re, random
 
-from .config import Config
+from .config import Config, resolve_role_models
 from .cost import CostTracker, SpendCapExceeded
 from .oracles import ORACLES, Oracle
 from .agent import Agent, assign_roles, update_elo
@@ -42,6 +42,10 @@ class Colony:
         self.oracle: Oracle = ORACLES[oracle_name](**cfg.oracle_kwargs)
         self.oracle_name = oracle_name
         self.rng = random.Random(cfg.seed)
+        # per-role-kind model map (validated here; raises on a bad config). The model
+        # a kind uses is the model that does its WORK: proposers generate+revise,
+        # critics critique, validators audit. Verification stays Z3-only (I1).
+        self.models = resolve_role_models(cfg)
 
         self.agents: list[Agent] = []
         self.shared: list[str] = []          # council insight pool
@@ -65,7 +69,7 @@ class Colony:
         # each colony meters itself (and can resume a prior balance from disk).
         self.cost = cost_tracker or CostTracker(
             cfg.spend_cap_usd, starting["usd"], starting["calls"],
-            starting["in_tok"], starting["out_tok"])
+            starting["in_tok"], starting["out_tok"], starting.get("by_model"))
         self.client = make_client(cfg, self.oracle, self.rng)
         self.reporter = Reporter(cfg)
 
@@ -73,12 +77,13 @@ class Colony:
     def run(self) -> dict:
         cfg = self.cfg
         opt = self.oracle.optimum_estimate()
+        headline = "MOCK" if cfg.use_mock else self.models["proposer"]
         self.reporter.event("start", oracle=self.oracle_name, n_agents=cfg.n_agents,
                             k_peers=cfg.k_peers, cap=cfg.spend_cap_usd,
-                            model="MOCK" if cfg.use_mock else cfg.gen_model, optimum=opt)
+                            model=headline, role_models=self.models, optimum=opt)
         self._say(f"[agora] oracle={self.oracle_name} agents={cfg.n_agents} "
                   f"k_peers={cfg.k_peers} cap=${cfg.spend_cap_usd:.2f} "
-                  f"model={'MOCK' if cfg.use_mock else cfg.gen_model}")
+                  f"model={headline}")
         self._say(f"        optimum ≈ {opt}  (resuming at cycle {self.start_cycle})\n")
 
         stop_reason = "cycle_ceiling"
@@ -135,10 +140,11 @@ class Colony:
 
         # 1) GENERATE — proposers only
         proposals: dict[int, dict] = {}
+        prop_model = self.models["proposer"]
         for a in proposers:
             sys = self.oracle.system_prompt(a.flavor)
-            r = self.client.complete(cfg.gen_model, sys, a.context(self.global_best, self.shared))
-            self.cost.charge(cfg.gen_model, r.in_tok, r.out_tok)
+            r = self.client.complete(prop_model, sys, a.context(self.global_best, self.shared))
+            self.cost.charge(prop_model, r.in_tok, r.out_tok)
             cand = _parse_candidate(r.text, self.oracle)
             a.last_candidate = cand
             proposals[a.id] = cand
@@ -153,8 +159,8 @@ class Colony:
             for pid in self.rng.sample(targets, k=min(cfg.k_peers, len(targets))):
                 msg = self.oracle.critique_prompt(proposals[pid])
                 sys = "You are a rigorous critic. " + a.flavor
-                r = self.client.complete(cfg.grunt_model, sys, msg, max_tokens=160)
-                self.cost.charge(cfg.grunt_model, r.in_tok, r.out_tok)
+                r = self.client.complete(self.models["critic"], sys, msg, max_tokens=160)
+                self.cost.charge(self.models["critic"], r.in_tok, r.out_tok)
                 received[pid].append(r.text.strip())
                 self.reporter.critique(cycle, a.id, a.role, pid, r.text.strip())
 
@@ -165,8 +171,8 @@ class Colony:
                 if not crits:
                     continue
                 msg = self.oracle.revise_prompt(proposals[a.id], crits)
-                r = self.client.complete(cfg.gen_model, self.oracle.system_prompt(a.flavor), msg)
-                self.cost.charge(cfg.gen_model, r.in_tok, r.out_tok)
+                r = self.client.complete(prop_model, self.oracle.system_prompt(a.flavor), msg)
+                self.cost.charge(prop_model, r.in_tok, r.out_tok)
                 revised = _parse_candidate(r.text, self.oracle)
                 original = proposals[a.id]
                 before_score = self.oracle.score(original)
@@ -192,8 +198,8 @@ class Colony:
         for a in validators:
             msg = (f"{a.flavor}\nLeading candidate: {json.dumps(top_tune)} "
                    f"(score {top_score}). Audit it in 1-2 sentences.")
-            r = self.client.complete(cfg.grunt_model, "You are an auditor.", msg, max_tokens=160)
-            self.cost.charge(cfg.grunt_model, r.in_tok, r.out_tok)
+            r = self.client.complete(self.models["validator"], "You are an auditor.", msg, max_tokens=160)
+            self.cost.charge(self.models["validator"], r.in_tok, r.out_tok)
             self.reporter.audit(cycle, a.id, a.role, top_tune, r.text.strip())
 
         # 6) REMEMBER — global best + shared pool + compressed memory

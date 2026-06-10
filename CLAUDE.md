@@ -119,9 +119,16 @@ verified-count.
 
 - **Hard spend cap**: `CostTracker.charge()` meters every call and raises
   `SpendCapExceeded` the instant cumulative spend crosses the cap. Pass one instance to
-  many colonies for a single global budget.
-- **Two tiers**: `gen_model` (Sonnet) for generate/revise; `grunt_model` (Haiku) for
-  critique/audit. Prices live in `config.PRICES`.
+  many colonies for a single global budget. It also keeps a per-model breakdown
+  (`as_dict()["by_model"]`) — pure attribution; the cap stays a single global total.
+- **Two tiers** (default): `gen_model` (Sonnet) for generate/revise; `grunt_model`
+  (Haiku) for critique/audit. Prices live in `config.PRICES` (incl. `claude-fable-5`).
+- **Per-role-kind models (#2)**: `Config.role_models` (`{proposer|critic|validator: model}`)
+  + `config.resolve_role_models()` assign a model per kind of WORK — proposers
+  generate/revise, critics critique, validators audit. Default = the two tiers above,
+  byte-identical to before. CLI: `--proposer-model/--critic-model/--validator-model`.
+  The model a kind uses is **orthogonal to the Z3 gate** — which model proposed a
+  candidate never affects whether the Oracle verifies it (no self-grading).
 - **Clients**: `MockClient` needs no API key and costs $0 of real money (it still meters
   synthetic tokens so budget plumbing is exercised). `AnthropicClient` lazily imports the
   `anthropic` SDK and is selected by `Config.use_mock=False` (`--real`).

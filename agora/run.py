@@ -34,6 +34,12 @@ def main(argv=None):
     p.add_argument("--patience", type=int, default=5)
     p.add_argument("--cap", type=float, default=5.00, help="hard spend cap (USD)")
     p.add_argument("--real", action="store_true", help="use real Claude (needs ANTHROPIC_API_KEY)")
+    p.add_argument("--proposer-model", default=None,
+                   help="model for proposer work (generate/revise); default = gen tier")
+    p.add_argument("--critic-model", default=None,
+                   help="model for critic work (critique); default = grunt tier")
+    p.add_argument("--validator-model", default=None,
+                   help="model for validator work (audit); default = grunt tier")
     p.add_argument("--no-revision", action="store_true", help="disable the Phase 1 revision step")
     p.add_argument("--fresh", action="store_true", help="ignore saved state; start over")
     p.add_argument("--quiet-log", action="store_true",
@@ -52,12 +58,16 @@ def main(argv=None):
     from .oracles import default_target
     target = args.target if args.target is not None else default_target(args.difficulty)
     oracle_kwargs = {"target": target} if args.oracle == "formula" else {}
+    role_models = {k: m for k, m in (("proposer", args.proposer_model),
+                                     ("critic", args.critic_model),
+                                     ("validator", args.validator_model)) if m} or None
     cfg = Config(
         n_agents=n_agents, k_peers=args.k_peers, n_cycles=args.cycles,
         patience=args.patience, spend_cap_usd=args.cap, use_mock=not args.real,
         enable_revision=not args.no_revision, resume=not args.fresh,
         seed=args.seed, state_file=args.state_file, log_candidates=not args.quiet_log,
         roster=roster, oracle_kwargs=oracle_kwargs, difficulty=args.difficulty,
+        role_models=role_models,
     )
     Colony(cfg, oracle_name=args.oracle).run()
 
