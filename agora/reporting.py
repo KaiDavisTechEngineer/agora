@@ -45,6 +45,20 @@ class Reporter:
             self.event("audit", cycle=cycle, auditor=agent_id, role=role,
                        candidate=candidate, text=text, model=model)
 
+    # ---- degraded-path observability (real-client resilience) ----
+    # These are ALWAYS logged (not gated by log_candidates) — they are rare and
+    # diagnostically important for a real run.
+    def api_error(self, cycle, role, stage, err) -> None:
+        """A model call failed (after the SDK's own retries) and was contained: the
+        call is NOT charged and an empty reply is substituted so the run continues."""
+        self.event("api_error", cycle=cycle, role=role, stage=stage,
+                   error=str(err)[:200])
+
+    def parse_fallback(self, cycle, agent_id, role, stage) -> None:
+        """A model reply could not be parsed into a candidate (malformed/refusal/empty)
+        and was replaced by the Oracle's default — logged so degraded events are visible."""
+        self.event("parse_fallback", cycle=cycle, agent=agent_id, role=role, stage=stage)
+
     def elo(self, cycle, agent_id, role, model, score, rank,
             elo_before, elo_after, delta) -> None:
         """Per-cycle Elo movement for a proposer — the explanatory layer (#5) ties a

@@ -22,17 +22,25 @@ from .cost import CostTracker, SpendCapExceeded
 from .oracles import ORACLES, Oracle
 from .agent import Agent, assign_roles, update_elo
 from .roles import PROPOSER, CRITIC, VALIDATOR
-from .llm import make_client
+from .llm import make_client, LLMReply
 from .reporting import Reporter
 
 
-def _parse_candidate(text: str, oracle: Oracle) -> dict:
+def _parse_candidate(text: str, oracle: Oracle):
+    """Parse a (possibly messy, real-model) reply into a normalized candidate.
+
+    Returns (candidate, fell_back): `fell_back` is True when the reply contained no
+    parseable JSON object (malformed / refusal / empty / prose), in which case the
+    Oracle's total `normalize({})` default is returned. Never raises — normalize is the
+    firewall against malformed output."""
     text = re.sub(r"```(json)?", "", text).strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        return oracle.normalize({}), True
     try:
-        return oracle.normalize(json.loads(m.group(0))) if m else oracle.normalize({})
+        return oracle.normalize(json.loads(m.group(0))), False
     except (json.JSONDecodeError, ValueError):
-        return oracle.normalize({})
+        return oracle.normalize({}), True
 
 
 class Colony:
@@ -74,18 +82,30 @@ class Colony:
         self.reporter = Reporter(cfg)
 
     # ------------------------------------------------------- the single paid-call funnel
-    def _complete(self, model, system, user, max_tokens=600):
+    def _complete(self, model, system, user, max_tokens=600, *,
+                  stage="?", cycle=0, role="?"):
         """Every paid model call goes through here: an OPTIONAL pre-call budget guard,
         then the call, then charge(). When `halt_before_overspend` is set, a call whose
         worst-case cost (estimated input + max_tokens output) would cross the cap is
-        refused BEFORE it is made — the cap is never raised or removed (I2)."""
+        refused BEFORE it is made — the cap is never raised or removed (I2).
+
+        A model-call failure (after the SDK's own retries) is CONTAINED: it is not
+        charged, an `api_error` event is logged, and an empty reply is returned so the
+        cycle degrades gracefully instead of crashing the run. SpendCapExceeded always
+        propagates — it is never swallowed."""
         if self.cfg.halt_before_overspend:
             est_in = len(system + user) // 4          # same token model the mock bills
             if self.cost.would_exceed(model, est_in, max_tokens):
                 raise SpendCapExceeded(
                     f"projected spend would cross cap ${self.cost.cap:.2f}; halting "
                     f"BEFORE the call (spent ${self.cost.usd:.4f} over {self.cost.calls}).")
-        r = self.client.complete(model, system, user, max_tokens=max_tokens)
+        try:
+            r = self.client.complete(model, system, user, max_tokens=max_tokens)
+        except SpendCapExceeded:
+            raise                                     # never contain a budget halt
+        except Exception as e:                        # API/network failure mid-cycle
+            self.reporter.api_error(cycle, role, stage, e)
+            return LLMReply("", 0, 0)                 # uncharged; cycle continues
         self.cost.charge(model, r.in_tok, r.out_tok)
         return r
 
@@ -159,8 +179,11 @@ class Colony:
         prop_model = self.models["proposer"]
         for a in proposers:
             sys = self.oracle.system_prompt(a.flavor)
-            r = self._complete(prop_model, sys, a.context(self.global_best, self.shared))
-            cand = _parse_candidate(r.text, self.oracle)
+            r = self._complete(prop_model, sys, a.context(self.global_best, self.shared),
+                               stage="generate", cycle=cycle, role=a.role)
+            cand, fell_back = _parse_candidate(r.text, self.oracle)
+            if fell_back:
+                self.reporter.parse_fallback(cycle, a.id, a.role, "generate")
             a.last_candidate = cand
             proposals[a.id] = cand
             self.reporter.proposal(cycle, a.id, a.role, cand, self.oracle.score(cand),
@@ -175,7 +198,8 @@ class Colony:
             for pid in self.rng.sample(targets, k=min(cfg.k_peers, len(targets))):
                 msg = self.oracle.critique_prompt(proposals[pid])
                 sys = "You are a rigorous critic. " + a.flavor
-                r = self._complete(self.models["critic"], sys, msg, max_tokens=160)
+                r = self._complete(self.models["critic"], sys, msg, max_tokens=160,
+                                   stage="critique", cycle=cycle, role=a.role)
                 received[pid].append(r.text.strip())
                 self.reporter.critique(cycle, a.id, a.role, pid, r.text.strip(),
                                        model=self.models["critic"])
@@ -187,8 +211,11 @@ class Colony:
                 if not crits:
                     continue
                 msg = self.oracle.revise_prompt(proposals[a.id], crits)
-                r = self._complete(prop_model, self.oracle.system_prompt(a.flavor), msg)
-                revised = _parse_candidate(r.text, self.oracle)
+                r = self._complete(prop_model, self.oracle.system_prompt(a.flavor), msg,
+                                   stage="revise", cycle=cycle, role=a.role)
+                revised, fell_back = _parse_candidate(r.text, self.oracle)
+                if fell_back:
+                    self.reporter.parse_fallback(cycle, a.id, a.role, "revise")
                 original = proposals[a.id]
                 before_score = self.oracle.score(original)
                 after_score = self.oracle.score(revised)
@@ -223,7 +250,8 @@ class Colony:
         for a in validators:
             msg = (f"{a.flavor}\nLeading candidate: {json.dumps(top_tune)} "
                    f"(score {top_score}). Audit it in 1-2 sentences.")
-            r = self._complete(self.models["validator"], "You are an auditor.", msg, max_tokens=160)
+            r = self._complete(self.models["validator"], "You are an auditor.", msg,
+                               max_tokens=160, stage="audit", cycle=cycle, role=a.role)
             self.reporter.audit(cycle, a.id, a.role, top_tune, r.text.strip(),
                                 model=self.models["validator"])
 
