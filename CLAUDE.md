@@ -101,12 +101,23 @@ the cap is a single global budget; crossing it halts the battery mid-stream.
 persisted genome from `genome.json`, rotates to **one** target (rotation index lives
 in `genome.json`), evaluates the current genome and one mutated variant on just that
 target, keeps the mutation only on a **strict verifier-gated improvement** (the same
-gate), then saves `genome.json` (genome + rotation index + a short accepted-change
-history). Defaults are tiny and cheap — 1 attempt, small inner cycles, real API, a
-`$0.50` hard cap — so improvements can drip in over many cheap runs without ever
-weakening the gate. The full meta-loop is unchanged; pass `genome_path=` to `evolve()`
-to make it accumulate too. `genome.json` is git-ignored generated state (force-add it
-to snapshot an evolved genome).
+gate), then saves `genome.json`. Defaults are tiny and cheap — 1 attempt, small inner
+cycles, real API, a `$0.50` hard cap — so improvements drip in over many cheap runs
+without ever weakening the gate. The full meta-loop is unchanged; pass `genome_path=`
+to `evolve()` to make it accumulate too. `genome.json` is git-ignored generated state
+(force-add it to snapshot an evolved genome).
+
+**Bounded mutation surface (I3/I4, enforced in code).** Every mutation is a structured,
+*vettable* object — `{"kind":"flavor","role":…,"value":…}` or `{"kind":"param","name":…,
+"value":…}`. `evolve.vet_mutation()` is **default-deny**: only a flavor on a proposer
+role or a param in `STRATEGY_PARAM_ALLOWLIST` (`k_peers`, `survivor_frac`, `memory_keep`,
+`shared_keep` — all strictly downstream of the gate) is admitted; anything naming a
+`SACROSANCT_TARGET` (the gate, verifier, score, spend cap, models/weights) is flagged a
+**REWARD-HACK and rejected *before* the Oracle gate is ever reached**. An admitted
+mutation must still **re-pass the same gate** (`is_improvement` on Z3-verified fitness)
+to persist (I4). `genome.json` now also stores evolved post-gate `params` (re-filtered
+to the allowlist on load, so a tampered file can't smuggle a forbidden knob) and an
+`audit` trail recording **accepted *and* rejected** mutations (what / when / why).
 
 ## #5 interpretability (`interpret.py`)
 

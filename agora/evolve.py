@@ -34,6 +34,66 @@ from .roles import FORMAL_ROSTER, get_role, kind_of, PROPOSER
 DEFAULT_BATTERY = ["majority3", "mux", "parity3"]
 
 
+# ===========================================================================
+# Phase 3 — BOUNDED MUTATION SURFACE  (I3 enforced in code, not convention)
+# ===========================================================================
+# The meta-loop may only mutate strategy params that are strictly DOWNSTREAM of the
+# Oracle gate — things that change how proposers EXPLORE, never how candidates are
+# JUDGED. The surface is an explicit allowlist (default-deny): anything not listed is
+# rejected before it can be evaluated, let alone persisted.
+#
+# Two mutation kinds:
+#   {"kind": "flavor", "role": <proposer>, "value": <str>}   # the original genome
+#   {"kind": "param",  "name": <knob>,     "value": <num>}   # a post-gate colony knob
+STRATEGY_PARAM_ALLOWLIST = {"k_peers", "survivor_frac", "memory_keep", "shared_keep"}
+
+# Names a mutation must NEVER name. Default-deny already rejects them, but matching one
+# is an explicit reward-hack attempt (I1/I2/I3) and is flagged as such in the audit.
+SACROSANCT_TARGETS = {
+    "spend_cap_usd", "cap", "spend", "budget",
+    "verify", "verifier", "oracle", "gate", "is_improvement",
+    "score", "scoring", "fitness", "table", "_fn", "_ref", "optimum_estimate",
+    "gen_model", "grunt_model", "role_models", "model", "weights", "model_weights",
+}
+
+
+def vet_mutation(mut: dict, proposer_roles) -> tuple:
+    """Gatekeeper for the mutation surface (I3). Returns (allowed: bool, reason: str).
+
+    Runs BEFORE the Oracle gate — a disallowed mutation is never evaluated or persisted.
+    Default-deny: only an in-allowlist flavor/param mutation is admitted; naming any
+    sacrosanct target (gate / cap / score / weights) is flagged as a reward-hack."""
+    if not isinstance(mut, dict):
+        return False, f"malformed mutation (not a dict): {type(mut).__name__}"
+    kind = mut.get("kind")
+    name = str(mut.get("name", "")).lower()
+    # explicit reward-hack flag — clearer audit than a bare default-deny
+    if name in SACROSANCT_TARGETS or kind in SACROSANCT_TARGETS:
+        return False, (f"REWARD-HACK: targets sacrosanct '{mut.get('name') or kind}' "
+                       f"(gate/cap/score/weights) — forbidden")
+    if kind == "flavor":
+        if mut.get("role") in proposer_roles:
+            return True, "flavor mutation on a proposer role (post-gate instruction)"
+        return False, f"flavor target '{mut.get('role')}' is not a proposer role"
+    if kind == "param":
+        if mut.get("name") in STRATEGY_PARAM_ALLOWLIST:
+            return True, f"param '{mut.get('name')}' in strategy allowlist (post-gate)"
+        return False, f"param '{mut.get('name')}' not in strategy allowlist (default-deny)"
+    return False, f"unknown mutation kind '{kind}' — not an allowed surface"
+
+
+def apply_mutation(genome: dict, params: dict, mut: dict) -> tuple:
+    """Return (new_genome, new_params) with the (already-vetted) mutation applied.
+    Never mutates the inputs. Only ever reachable after vet_mutation() admits `mut`."""
+    g, p = dict(genome), dict(params)
+    if mut["kind"] == "flavor":
+        g[mut["role"]] = mut["value"]
+    elif mut["kind"] == "param":          # belt-and-suspenders: allowlist re-checked
+        if mut["name"] in STRATEGY_PARAM_ALLOWLIST:
+            p[mut["name"]] = mut["value"]
+    return g, p
+
+
 # --------------------------------------------------------------------- genome
 def proposer_roles(roster: list[str]) -> list[str]:
     return [r for r in roster if kind_of(r) == PROPOSER]
@@ -49,24 +109,37 @@ def baseline_genome(roster: list[str]) -> dict:
 # loads the evolved genome (or baseline if none yet), improves it, and saves it.
 def load_genome(path, roster):
     """Load the persisted genome, falling back to baseline flavors. Only proposer
-    roles present in the current roster are kept, so the roster can change safely."""
+    roles present in the current roster are kept, so the roster can change safely.
+
+    Also loads evolved post-gate `params` (filtered to the allowlist — a tampered file
+    cannot smuggle a forbidden knob past load) and the `audit` trail (accepts+rejects)."""
     base = baseline_genome(roster)
     if not path or not os.path.exists(path):
-        return {"genome": base, "rotation_index": 0, "history": [], "battery": None}
+        return {"genome": base, "rotation_index": 0, "history": [], "battery": None,
+                "params": {}, "audit": []}
     with open(path) as f:
         data = json.load(f)
     genome = dict(base)
     genome.update({k: v for k, v in data.get("genome", {}).items() if k in base})
+    params = {k: v for k, v in data.get("params", {}).items()
+              if k in STRATEGY_PARAM_ALLOWLIST}     # drop any non-allowlisted knob
     return {"genome": genome,
             "rotation_index": int(data.get("rotation_index", 0)),
             "history": list(data.get("history", [])),
-            "battery": data.get("battery")}
+            "battery": data.get("battery"),
+            "params": params,
+            "audit": list(data.get("audit", []))}
 
 
-def save_genome(path, genome, rotation_index, history, battery, history_keep=20):
-    """Atomically persist genome + rotation index + a short accepted-change history."""
+def save_genome(path, genome, rotation_index, history, battery, audit=None,
+                params=None, history_keep=20, audit_keep=200):
+    """Atomically persist genome + rotation index + accepted-change history + evolved
+    post-gate params + the audit trail (accepted AND rejected mutations)."""
     data = {"genome": genome, "rotation_index": rotation_index,
-            "history": history[-history_keep:], "battery": battery}
+            "history": history[-history_keep:], "battery": battery,
+            "params": {k: v for k, v in (params or {}).items()
+                       if k in STRATEGY_PARAM_ALLOWLIST},
+            "audit": list(audit or [])[-audit_keep:]}
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
@@ -95,15 +168,18 @@ class EvolveLog:
 
 
 def _evaluate(genome, step, phase, *, battery, cost, base_cfg, oracle_name,
-              out_dir, elog, quiet):
+              out_dir, elog, quiet, params=None):
     """Run the colony on every target in the battery with this genome.
 
     Returns ((verified_count, total_score), halted, n_evaluated). Stops early and
-    sets halted=True the moment the shared budget is exhausted (mid-battery)."""
+    sets halted=True the moment the shared budget is exhausted (mid-battery).
+    `params` (already allowlisted) override post-gate colony knobs via Config."""
     verified_count = 0
     total = 0.0
     halted = False
     n_eval = 0
+    # only allowlisted, real Config fields ever reach replace() — defense in depth
+    extra = {k: v for k, v in (params or {}).items() if k in STRATEGY_PARAM_ALLOWLIST}
     for target in battery:
         tag = f"s{step}_{phase}_{target}"
         cfg = replace(
@@ -114,6 +190,7 @@ def _evaluate(genome, step, phase, *, battery, cost, base_cfg, oracle_name,
             log_file=os.path.join(out_dir, f"{tag}.jsonl"),
             state_file=os.path.join(out_dir, f"{tag}.state.json"),
             curve_file=os.path.join(out_dir, f"{tag}.curve.csv"),
+            **extra,
         )
         summ = Colony(cfg, oracle_name, cost_tracker=cost).run()
         n_eval += 1
@@ -157,11 +234,20 @@ def _mutate_flavor(role: str, flavor: str, step: int, real: bool, cost, gen_mode
     return new or flavor
 
 
+def _default_mutation(role, flavor, step, real, cost, gen_model) -> dict:
+    """The production mutation source: rewrite ONE proposer's flavor (a post-gate
+    instruction). Returns a structured, vettable mutation. Tests can inject a different
+    `propose_mutation` — including a reward-hacking one — to exercise the guard."""
+    return {"kind": "flavor", "role": role,
+            "value": _mutate_flavor(role, flavor, step, real, cost, gen_model)}
+
+
 # ------------------------------------------------------------------- meta-loop
 def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
            inner_agents=None, seed=7, out_dir="runs",
            evolve_log="evolve_log.jsonl", quiet=False, cost=None,
-           oracle_name="formula", roster=None, genome_path=None):
+           oracle_name="formula", roster=None, genome_path=None,
+           propose_mutation=None):
     """Run the self-improvement meta-loop. Returns a summary dict.
 
     `cost` lets a caller (or test) pass in a pre-existing shared CostTracker so the
@@ -181,9 +267,12 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
         quiet=True,
     )
     proposers = proposer_roles(roster)
+    propose_mutation = propose_mutation or _default_mutation
     loaded = load_genome(genome_path, roster) if genome_path else None
     genome = loaded["genome"] if loaded else baseline_genome(roster)
     history = loaded["history"] if loaded else []
+    params = loaded["params"] if loaded else {}
+    audit = loaded["audit"] if loaded else []
     rot = loaded["rotation_index"] if loaded else 0
     elog.emit("baseline_genome", genome=genome, battery=battery,
               roster=roster, real=real)
@@ -194,7 +283,7 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
     base_fit, halted, _ = _evaluate(genome, 0, "baseline", battery=battery,
                                     cost=cost, base_cfg=base_cfg,
                                     oracle_name=oracle_name, out_dir=out_dir,
-                                    elog=elog, quiet=quiet)
+                                    elog=elog, quiet=quiet, params=params)
     best_fit = base_fit
     if not quiet:
         print(f"[evolve] baseline fitness = {best_fit}  "
@@ -204,32 +293,50 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
     for step in range(1, steps + 1):
         if halted:
             break
-        # mutate ONE proposer's flavor (round-robin across proposers by step)
+        # propose ONE mutation (round-robin across proposers by step)
         role = proposers[(step - 1) % len(proposers)]
         before = genome[role]
         try:
-            after = _mutate_flavor(role, before, step, real, cost, base_cfg.gen_model)
+            mut = propose_mutation(role, before, step, real, cost, base_cfg.gen_model)
         except SpendCapExceeded:
             halted = True
             elog.emit("decision", step=step, decision="HALT_ON_MUTATION")
             break
-        cand = dict(genome)
-        cand[role] = after
-        elog.emit("mutation", step=step, role=role, before=before, after=after)
+        after = mut.get("value") if mut.get("kind") == "flavor" else None
+        elog.emit("mutation", step=step, role=role, mutation=mut,
+                  before=before, after=after)
 
-        cand_fit, halted, _ = _evaluate(cand, step, "candidate", battery=battery,
+        # I3: vet BEFORE the gate — a disallowed mutation is never evaluated/persisted
+        allowed, reason = vet_mutation(mut, proposers)
+        if not allowed:
+            audit.append({"when": step, "phase": "candidate", "decision": "reject_disallowed",
+                          "role": role, "mutation": mut, "reason": reason})
+            elog.emit("decision", step=step, decision="reject_disallowed",
+                      role=role, reason=reason)
+            if not quiet:
+                print(f"[BLOCKED] step {step} role={role}: {reason}")
+            continue
+
+        cand_g, cand_p = apply_mutation(genome, params, mut)
+        # I4: re-pass the SAME Oracle gate before persisting
+        cand_fit, halted, _ = _evaluate(cand_g, step, "candidate", battery=battery,
                                         cost=cost, base_cfg=base_cfg,
                                         oracle_name=oracle_name, out_dir=out_dir,
-                                        elog=elog, quiet=quiet)
+                                        elog=elog, quiet=quiet, params=cand_p)
         if is_improvement(cand_fit, best_fit):
             history.append({"target": "battery", "role": role,
                             "before_fitness": list(best_fit), "after_fitness": list(cand_fit),
-                            "before": before, "after": after})
-            genome, best_fit = cand, cand_fit
+                            "before": before, "after": after, "mutation": mut})
+            genome, params, best_fit = cand_g, cand_p, cand_fit
             accepted += 1
             decision = "ACCEPT"
+            reason = "verifier-gated improvement"
         else:
             decision = "REJECT"
+            reason = "no verifier-gated improvement"
+        audit.append({"when": step, "phase": "candidate", "decision": decision,
+                      "role": role, "mutation": mut, "reason": reason,
+                      "cand_fitness": list(cand_fit)})
         elog.emit("decision", step=step, decision=decision, role=role,
                   from_fitness=list(best_fit if decision == "REJECT" else cand_fit),
                   cand_fitness=list(cand_fit), accepted_genome=genome)
@@ -238,7 +345,7 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
             print(f"{tag} step {step} role={role}: cand={cand_fit} best={best_fit}")
 
     if genome_path:
-        save_genome(genome_path, genome, rot, history, battery)
+        save_genome(genome_path, genome, rot, history, battery, audit=audit, params=params)
     result = {
         "steps_run": min(steps, step if steps else 0),
         "accepted": accepted,
@@ -247,6 +354,8 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
         "verified_gain": best_fit[0] - base_fit[0],
         "halted": halted,
         "genome": genome,
+        "params": params,
+        "audit": audit,
         "cost": cost.as_dict(),
         "evolve_log": evolve_log,
         "battery": battery,
@@ -266,22 +375,29 @@ def evolve(steps=4, cap=5.00, real=False, battery=None, inner_cycles=8,
 def trickle(genome_path="genome.json", cap=0.50, real=False, battery=None,
             inner_cycles=2, inner_agents=None, seed=7, out_dir="runs",
             evolve_log="evolve_log.jsonl", quiet=False, cost=None,
-            oracle_name="formula", roster=None):
+            oracle_name="formula", roster=None, propose_mutation=None):
     """A gentle, ACCUMULATING entry point: exactly ONE attempt per invocation.
 
     Loads the persisted genome, rotates to ONE target, evaluates the current genome
     and ONE mutated variant on just that target, keeps the mutation only if it is a
     verifier-gated improvement (more verified, ties by score), then saves genome.json.
-    Same gate as the full meta-loop — only cheaper and incremental."""
+
+    Phase 3: every proposed mutation is VETTED against the allowlist (I3) before it can
+    be evaluated — a reward-hack attempt (touching the gate/cap/score) is rejected
+    pre-gate and never persists. Allowed mutations must still re-pass the SAME Oracle
+    gate (I4). BOTH outcomes are recorded in the persistent audit trail."""
     roster = roster or FORMAL_ROSTER
     inner_agents = inner_agents or len(roster)
     os.makedirs(out_dir, exist_ok=True)
     cost = cost or CostTracker(cap)
     elog = EvolveLog(evolve_log)
+    propose_mutation = propose_mutation or _default_mutation
 
     loaded = load_genome(genome_path, roster)
     genome = loaded["genome"]
+    params = loaded["params"]
     history = loaded["history"]
+    audit = loaded["audit"]
     rot = loaded["rotation_index"]
     battery = battery or loaded["battery"] or list(DEFAULT_BATTERY)
     proposers = proposer_roles(roster)
@@ -292,54 +408,81 @@ def trickle(genome_path="genome.json", cap=0.50, real=False, battery=None,
                       patience=inner_cycles, spend_cap_usd=cap, use_mock=not real,
                       seed=seed, quiet=True)
     elog.emit("trickle_start", target=target, role=role, rotation_index=rot,
-              genome=genome, real=real)
+              genome=genome, params=params, real=real)
     if not quiet:
         print(f"[trickle] target={target} nudge={role} rot={rot} "
               f"cap=${cap:.2f} mode={'REAL' if real else 'MOCK'}")
 
-    # 1) current genome on the one rotated target
+    # 1) current genome+params on the one rotated target
     cur_fit, halted, _ = _evaluate(genome, rot, "trickle_cur", battery=[target],
                                    cost=cost, base_cfg=base_cfg, oracle_name=oracle_name,
-                                   out_dir=out_dir, elog=elog, quiet=quiet)
-    before = genome[role]
-    after = before
+                                   out_dir=out_dir, elog=elog, quiet=quiet, params=params)
+    before = genome.get(role, "")
     cand_fit = cur_fit
     accepted = False
+    disallowed = False
+    mut = None
+    reason = "no verifier-gated improvement"
     # 2) ONE mutated variant on the SAME target (skip if the budget is already spent)
     if not halted:
         try:
-            after = _mutate_flavor(role, before, rot, real, cost, base_cfg.gen_model)
-            cand = dict(genome)
-            cand[role] = after
-            elog.emit("mutation", step=rot, role=role, before=before, after=after)
-            cand_fit, halted, _ = _evaluate(cand, rot, "trickle_cand", battery=[target],
-                                            cost=cost, base_cfg=base_cfg,
-                                            oracle_name=oracle_name, out_dir=out_dir,
-                                            elog=elog, quiet=quiet)
-            if is_improvement(cand_fit, cur_fit):     # the SAME verifier-gate
-                genome = cand
-                accepted = True
-                history.append({"target": target, "role": role,
-                                "before_fitness": list(cur_fit), "after_fitness": list(cand_fit),
-                                "before": before, "after": after})
+            mut = propose_mutation(role, before, rot, real, cost, base_cfg.gen_model)
+            after = mut.get("value") if mut.get("kind") == "flavor" else None
+            elog.emit("mutation", step=rot, role=role, mutation=mut, before=before, after=after)
+            # I3: vet BEFORE the gate. A disallowed mutation never reaches _evaluate.
+            allowed, vet_reason = vet_mutation(mut, proposers)
+            if not allowed:
+                disallowed = True
+                reason = vet_reason
+            else:
+                cand_g, cand_p = apply_mutation(genome, params, mut)
+                cand_fit, halted, _ = _evaluate(cand_g, rot, "trickle_cand", battery=[target],
+                                                cost=cost, base_cfg=base_cfg,
+                                                oracle_name=oracle_name, out_dir=out_dir,
+                                                elog=elog, quiet=quiet, params=cand_p)
+                if is_improvement(cand_fit, cur_fit):     # I4: re-pass the SAME gate
+                    genome, params = cand_g, cand_p
+                    accepted = True
+                    reason = "verifier-gated improvement"
+                    history.append({"target": target, "role": role,
+                                    "before_fitness": list(cur_fit), "after_fitness": list(cand_fit),
+                                    "before": before, "after": after, "mutation": mut})
         except SpendCapExceeded:
             halted = True
 
+    if accepted:
+        decision = "ACCEPT"
+    elif disallowed:
+        decision = "reject_disallowed"
+    elif halted:
+        decision = "HALT"
+        reason = "spend cap reached"
+    else:
+        decision = "reject"
+    # audit BOTH accepted and rejected mutations (what / when / why) — but not a pure
+    # pre-mutation budget HALT (no mutation was ever proposed).
+    if mut is not None:
+        audit.append({"when": rot, "phase": "trickle", "decision": decision,
+                      "target": target, "role": role, "mutation": mut, "reason": reason,
+                      "cur_fitness": list(cur_fit), "cand_fitness": list(cand_fit)})
+
     rot_next = rot + 1                                  # advance rotation for next time
-    save_genome(genome_path, genome, rot_next, history, battery)
-    decision = "ACCEPT" if accepted else ("HALT" if halted else "reject")
+    save_genome(genome_path, genome, rot_next, history, battery, audit=audit, params=params)
     elog.emit("decision", step=rot, decision=decision, role=role, target=target,
-              cur_fitness=list(cur_fit), cand_fitness=list(cand_fit))
+              reason=reason, cur_fitness=list(cur_fit), cand_fitness=list(cand_fit))
 
     result = {
         "target": target, "role": role, "accepted": accepted, "halted": halted,
+        "decision": decision, "reason": reason,
         "cur_fitness": list(cur_fit), "cand_fitness": list(cand_fit),
-        "rotation_index": rot_next, "genome": genome, "history": history,
+        "rotation_index": rot_next, "genome": genome, "params": params,
+        "history": history, "audit": audit,
         "cost": cost.as_dict(), "genome_path": genome_path,
     }
     if not quiet:
-        tag = "[ACCEPT]" if accepted else ("[HALT]" if halted else "[reject]")
-        print(f"{tag} target={target} role={role}: cur={cur_fit} cand={cand_fit}")
+        tag = {"ACCEPT": "[ACCEPT]", "reject_disallowed": "[BLOCKED]",
+               "HALT": "[HALT]"}.get(decision, "[reject]")
+        print(f"{tag} target={target} role={role}: cur={cur_fit} cand={cand_fit}  {reason}")
         print(f"        saved {genome_path} (rot->{rot_next})  "
               f"spend ${cost.usd:.4f}/${cap:.2f}")
     return result
