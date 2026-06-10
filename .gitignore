@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# agora run artifacts (regenerated every run)
+run_log.jsonl
+colony_state.json
+best_curve.csv
+evolve_log.jsonl
+evolve_state.json
+runs/
+STOP
+
+# editor / OS
+.DS_Store
+
+# local Claude Code settings
+.claude/

@@ -1,0 +1,6 @@
+# Real-model runs (--real):
+anthropic>=0.40
+# Verified-discovery oracle (--oracle formula): formal equivalence checking
+z3-solver>=4.12
+# Dev:
+pytest>=8
