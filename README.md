@@ -135,6 +135,46 @@ enumeration for small specs if Z3 is absent).
 Batch API (−50%) + prompt caching roughly halve the bounded column. The lesson:
 cost is set by the **critique topology**, not the agent count. Keep `k_peers` small.
 
+## The integrated loop (`python -m agora.integrate`)
+
+A single integrated run wires the four frontiers together behind **one shared spend cap**:
+
+```
+per-role models ─▶ hard verifiable target ─▶ trickle self-improvement ─▶ explanatory trace
+     (P2)                 (P1)                   (P3, gate-bounded)            (P4)
+```
+
+1. **P2 — per-role models.** Each role-kind (proposer / critic / validator) can run its
+   own model, e.g. `--proposer-model claude-fable-5`. Per-model spend is attributed
+   individually but feeds the **single** global cap. The Z3 Oracle stays the only real
+   gate — which model proposed a candidate never affects whether it verifies.
+2. **P1 — a hard target.** `--difficulty {1,2,3}` selects a larger Z3-decidable target
+   (k=3 → k=5: `majority3` … `parity4` … `majority5`/`parity5`).
+3. **P3 — trickle self-improvement.** ONE cheap, gate-bounded step adjusts strategy
+   params and persists them to a genome store (`genome.json`). The mutation surface is
+   an explicit allowlist; a mutation that tries to touch the gate, cap, or score is
+   rejected **before** the gate and recorded in the audit trail. Every accepted change
+   re-passes the same Z3 gate before it persists.
+4. **P4 — explanatory trace.** The run's logs are read back to attribute **why** a
+   candidate won or lost — which critiques (and which role/model) moved its Elo.
+
+```bash
+# free, mocked, $0 — exercises all four frontiers under one $5 cap
+python -m agora.integrate --difficulty 2
+
+# assign a stronger proposer; halt BEFORE any call that would cross the cap
+python -m agora.integrate --difficulty 3 --proposer-model claude-fable-5 --cap 5.00
+
+# real Claude — SPENDS MONEY. Always capped. Ask before running.
+python -m agora.integrate --real --difficulty 2 --cap 1.00
+```
+
+The whole flow is covered by one mocked, `$0`, fixed-seed end-to-end test
+(`tests/test_integrate.py`) asserting gate integrity, the spend cap (halt *before* the
+offending call), per-role routing + cost attribution, bounded self-improvement
+(benign change persists only post-gate; reward-hacks rejected + audited), genome
+persistence/resume, the explanatory trace, a joint-invariant block, and determinism.
+
 ## Roadmap (where this goes next)
 - **Real-model run** — flip `--real`, watch Sonnet agents reason about the dyno.
 - **Smarter memory** — periodic LLM summarization of lessons (hook is in place).
@@ -155,12 +195,18 @@ agora/
   colony.py      # the loop + persistence + stop conditions
   reporting.py   # JSONL log + CSV curve
   roles.py       # role registry: kinds (proposer/critic/validator) + quant roster
-  run.py         # CLI
+  run.py         # colony CLI
   inspect_run.py # read candidate logs / reasoning signals
-tests/test_agora.py
+  evolve.py      # #6 verifier-gated self-improvement + trickle + genome store
+  interpret.py   # #5 behavioral + explanatory interpretability
+  integrate.py   # the combined P2->P1->P3->P4 loop
+tests/           # test_agora / evolve / trickle / interpret / integrate + phase1-4
 cost_projection.py
 ```
 ```
-Status: Phases 0–4 + observability + role registry/role-kinds + Z3-verified formula oracle (frontier #1), tested (26/26). Mock-verified end-to-end on two
-domains, with resume, convergence, stop-file, and spend-cap all exercised.
+Status: frontiers #1 (Z3-verified synthesis, k=3..k=5 + difficulty knob), #2 (per-role
+models), #6 (verifier-gated self-improvement: allowlisted + audited trickle/genome),
+and #5 (explanatory interpretability) — integrated into one gate-bounded loop. Tested
+(110+), mock-verified end-to-end with resume, convergence, stop-file, per-model
+accounting, and a single global spend cap all exercised. $0 in mock.
 ```

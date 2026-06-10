@@ -44,6 +44,16 @@ class CostTracker:
                 f"over {self.calls} calls)."
             )
 
+    def remaining(self) -> float:
+        """Budget left before the cap (may be negative if already over)."""
+        return self.cap - self.usd
+
+    def would_exceed(self, model: str, in_tok: int, out_tok: int) -> bool:
+        """Would charging this (model, tokens) reach or cross the cap? Used for a
+        pre-call guard that halts BEFORE the offending call — it never moves the cap."""
+        pin, pout = PRICES[model]
+        return self.usd + (in_tok / 1e6 * pin + out_tok / 1e6 * pout) >= self.cap
+
     def as_dict(self) -> dict:
         return {"usd": self.usd, "calls": self.calls,
                 "in_tok": self.in_tok, "out_tok": self.out_tok,

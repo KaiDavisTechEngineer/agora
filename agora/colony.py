@@ -73,6 +73,22 @@ class Colony:
         self.client = make_client(cfg, self.oracle, self.rng)
         self.reporter = Reporter(cfg)
 
+    # ------------------------------------------------------- the single paid-call funnel
+    def _complete(self, model, system, user, max_tokens=600):
+        """Every paid model call goes through here: an OPTIONAL pre-call budget guard,
+        then the call, then charge(). When `halt_before_overspend` is set, a call whose
+        worst-case cost (estimated input + max_tokens output) would cross the cap is
+        refused BEFORE it is made — the cap is never raised or removed (I2)."""
+        if self.cfg.halt_before_overspend:
+            est_in = len(system + user) // 4          # same token model the mock bills
+            if self.cost.would_exceed(model, est_in, max_tokens):
+                raise SpendCapExceeded(
+                    f"projected spend would cross cap ${self.cost.cap:.2f}; halting "
+                    f"BEFORE the call (spent ${self.cost.usd:.4f} over {self.cost.calls}).")
+        r = self.client.complete(model, system, user, max_tokens=max_tokens)
+        self.cost.charge(model, r.in_tok, r.out_tok)
+        return r
+
     # ------------------------------------------------------------------ loop
     def run(self) -> dict:
         cfg = self.cfg
@@ -143,8 +159,7 @@ class Colony:
         prop_model = self.models["proposer"]
         for a in proposers:
             sys = self.oracle.system_prompt(a.flavor)
-            r = self.client.complete(prop_model, sys, a.context(self.global_best, self.shared))
-            self.cost.charge(prop_model, r.in_tok, r.out_tok)
+            r = self._complete(prop_model, sys, a.context(self.global_best, self.shared))
             cand = _parse_candidate(r.text, self.oracle)
             a.last_candidate = cand
             proposals[a.id] = cand
@@ -160,8 +175,7 @@ class Colony:
             for pid in self.rng.sample(targets, k=min(cfg.k_peers, len(targets))):
                 msg = self.oracle.critique_prompt(proposals[pid])
                 sys = "You are a rigorous critic. " + a.flavor
-                r = self.client.complete(self.models["critic"], sys, msg, max_tokens=160)
-                self.cost.charge(self.models["critic"], r.in_tok, r.out_tok)
+                r = self._complete(self.models["critic"], sys, msg, max_tokens=160)
                 received[pid].append(r.text.strip())
                 self.reporter.critique(cycle, a.id, a.role, pid, r.text.strip(),
                                        model=self.models["critic"])
@@ -173,8 +187,7 @@ class Colony:
                 if not crits:
                     continue
                 msg = self.oracle.revise_prompt(proposals[a.id], crits)
-                r = self.client.complete(prop_model, self.oracle.system_prompt(a.flavor), msg)
-                self.cost.charge(prop_model, r.in_tok, r.out_tok)
+                r = self._complete(prop_model, self.oracle.system_prompt(a.flavor), msg)
                 revised = _parse_candidate(r.text, self.oracle)
                 original = proposals[a.id]
                 before_score = self.oracle.score(original)
@@ -210,8 +223,7 @@ class Colony:
         for a in validators:
             msg = (f"{a.flavor}\nLeading candidate: {json.dumps(top_tune)} "
                    f"(score {top_score}). Audit it in 1-2 sentences.")
-            r = self.client.complete(self.models["validator"], "You are an auditor.", msg, max_tokens=160)
-            self.cost.charge(self.models["validator"], r.in_tok, r.out_tok)
+            r = self._complete(self.models["validator"], "You are an auditor.", msg, max_tokens=160)
             self.reporter.audit(cycle, a.id, a.role, top_tune, r.text.strip(),
                                 model=self.models["validator"])
 

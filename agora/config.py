@@ -44,6 +44,9 @@ class Config:
     patience: int = 5            # stop if best score hasn't improved for this many cycles
     min_improvement: float = 0.5 # what counts as "improved"
     spend_cap_usd: float = 5.00  # HARD $ cap — run aborts the instant it is crossed
+    halt_before_overspend: bool = False  # if set, refuse a call whose worst-case cost
+                                         # would cross the cap (halt BEFORE the call);
+                                         # the cap value itself is never changed (I2)
     stop_file: str = "STOP"      # `touch STOP` next to the run to halt after the current cycle
 
     # --- behaviour ---

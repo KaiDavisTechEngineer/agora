@@ -21,7 +21,8 @@ That principle dictates the build order and the three frontiers below.
    cannot be reward-hacked. Built second, on top of #1.
 3. **#5 Interpretability** (`interpret.py`) — reads the logs to explain *which* evolved
    strategies produced the verified wins. Built third.
-4. **Integration** (`integrate.py`) — runs #6 on #1, then #5 on the result.
+4. **Integration** (`integrate.py`) — one loop: per-role models (#2) → a hard #1 target
+   → a gate-bounded #6 trickle step → a #5 explanatory trace, under one shared cap.
 
 ## Module map
 
@@ -161,7 +162,7 @@ colony logs — *critiques received → accepted, score-raising revision → ran
 python -m agora.run --oracle formula --target majority3 --roster formal
 python -m agora.evolve --steps 4 --cap 5.00            # mock meta-loop
 python -m agora.interpret --run-dir runs --evolve-log evolve_log.jsonl
-python -m agora.integrate --steps 3 --cap 5.00         # #1 -> #6 -> #5
+python -m agora.integrate --difficulty 2 --cap 5.00    # P2 models -> P1 hard -> P3 -> P4
 python -m agora.inspect_run --cycle 5 ; python -m agora.inspect_run --signals
 touch STOP                                              # halt a running colony gracefully
 
