@@ -121,10 +121,20 @@ to the allowlist on load, so a tampered file can't smuggle a forbidden knob) and
 
 ## #5 interpretability (`interpret.py`)
 
-Behavioral (from logs, not model internals): verified wins attributed by authoring role;
-revision-acceptance rate by role; critic roles/words that precede accepted revisions; and
-a baseline-vs-evolved flavor diff correlating each instruction change with a rise in
-verified-count.
+Behavioral (from logs, not model internals). **Descriptive** sections (WHAT happened):
+verified wins attributed by authoring role; revision-acceptance rate by role; critic
+roles/words that precede accepted revisions; a baseline-vs-evolved flavor diff
+correlating each instruction change with a rise in verified-count.
+
+**Explanatory** section (WHY a candidate won or lost), keyed off the causal chain the
+colony logs — *critiques received → accepted, score-raising revision → rank → Elo delta*:
+- the colony emits a per-cycle `elo` event (role, **model**, score, rank, before/after,
+  delta) and a `model` field on every proposal/critique/revision/audit event;
+- `explain_elo_attribution()` reports **net Elo per proposer role + the model it used**,
+  **critic credit** (which critic role/model's critiques moved Elo, and how many were
+  decisive), and the individual **decisive critiques** (critique → revision gain → Elo
+  gain); `win_explanations()` names each run's Elo-winner vs score-leader.
+- Attribution is deterministic on a fixed seed (keyed by run basename, not path).
 
 ## Cost, tiers, clients
 

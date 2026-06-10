@@ -164,6 +164,109 @@ def flavor_evolution(evolve_rows):
     return {"diff": diff, "correlated_with_verified_gain": correlated}
 
 
+# ============================================================================
+# EXPLANATORY layer (#5 upgrade) — WHY a candidate won or lost.
+# Descriptive sections above say WHAT happened; these say WHY: which specific
+# critiques moved a candidate's Elo, and which role/model contributed what. The
+# causal chain logged by the colony is
+#     critiques received  ->  accepted revision (score up)  ->  rank  ->  Elo delta
+# so a positive per-cycle Elo delta is attributed to the critiques that agent
+# received THAT cycle (the ones that drove its accepted, score-raising revision).
+# ============================================================================
+def explain_elo_attribution(run_logs):
+    """Attribute Elo movement to roles/models and to the critiques that caused it.
+
+    Returns a stable-shaped dict:
+      elo_by_role        : proposer role -> {model, net_elo, appearances}
+      critic_credit      : critic role  -> {model, elo_credited, critiques, decisive_revisions}
+      decisive_critiques : the individual critiques credited with an Elo-raising,
+                           revision-backed win (sorted deterministically)."""
+    elo_by_role = defaultdict(lambda: {"model": None, "net_elo": 0.0, "appearances": 0})
+    critic_credit = defaultdict(lambda: {"model": None, "elo_credited": 0.0,
+                                         "critiques": 0, "decisive_revisions": 0})
+    decisive = []
+    for path, rows in run_logs.items():
+        tag = os.path.basename(path)
+        elos = defaultdict(list)              # cycle -> [elo rows]
+        crit_by_target = defaultdict(list)    # (cycle, target_agent) -> [critique rows]
+        rev_by_agent = {}                     # (cycle, agent) -> revision row
+        for r in rows:
+            ev = r.get("event")
+            if ev == "elo":
+                elos[r["cycle"]].append(r)
+            elif ev == "critique":
+                crit_by_target[(r["cycle"], r["target"])].append(r)
+            elif ev == "revision":
+                rev_by_agent[(r["cycle"], r["agent"])] = r
+
+        for cycle, erows in elos.items():
+            for er in erows:
+                role, model, delta = er["role"], er.get("model"), er.get("delta", 0.0)
+                rec = elo_by_role[role]
+                rec["model"] = model
+                rec["net_elo"] += delta
+                rec["appearances"] += 1
+                if delta <= 0:                # only a RISE has critiques to credit
+                    continue
+                crits = crit_by_target.get((cycle, er["agent"]), [])
+                rev = rev_by_agent.get((cycle, er["agent"]))
+                rev_gain = (rev["after_score"] - rev["before_score"]) \
+                    if (rev and rev.get("accepted")) else 0.0
+                share = delta / len(crits) if crits else 0.0
+                for c in crits:
+                    cr = critic_credit[c.get("critic_role", "?")]
+                    cr["model"] = c.get("model")
+                    cr["elo_credited"] += share
+                    cr["critiques"] += 1
+                    if rev_gain > 0:
+                        cr["decisive_revisions"] += 1
+                        decisive.append({
+                            "run": tag, "cycle": cycle,
+                            "winner_role": role, "winner_model": model,
+                            "critic_role": c.get("critic_role", "?"),
+                            "critic_model": c.get("model"),
+                            "elo_delta": round(delta, 1),
+                            "revision_gain": round(rev_gain, 2),
+                            "critique": (c.get("text", "") or "")[:80],
+                        })
+
+    elo_by_role = {r: {"model": d["model"], "net_elo": round(d["net_elo"], 1),
+                       "appearances": d["appearances"]}
+                   for r, d in elo_by_role.items()}
+    critic_credit = {r: {"model": d["model"], "elo_credited": round(d["elo_credited"], 2),
+                         "critiques": d["critiques"],
+                         "decisive_revisions": d["decisive_revisions"]}
+                     for r, d in critic_credit.items()}
+    decisive.sort(key=lambda x: (-x["elo_delta"], x["run"], x["cycle"],
+                                 x["critic_role"], x["critique"]))
+    return {"elo_by_role": elo_by_role, "critic_credit": critic_credit,
+            "decisive_critiques": decisive[:20]}
+
+
+def win_explanations(run_logs):
+    """Per inner run: who WON (highest net Elo) and on which model, alongside the
+    highest-scoring author. The score-leader is who reached the top formula; the
+    Elo-leader is who won the most head-to-head rankings over the run."""
+    out = []
+    for path, rows in run_logs.items():
+        net = defaultdict(float)
+        model_of = {}
+        for r in rows:
+            if r.get("event") == "elo":
+                net[r["role"]] += r.get("delta", 0.0)
+                model_of[r["role"]] = r.get("model")
+        if not net:
+            continue
+        top_role = max(net, key=lambda k: (net[k], k))
+        score_role, score = winning_role(rows)
+        out.append({"run": os.path.basename(path),
+                    "top_elo_role": top_role, "top_elo_model": model_of.get(top_role),
+                    "net_elo": round(net[top_role], 1),
+                    "top_score_role": score_role, "top_score": score})
+    out.sort(key=lambda x: x["run"])
+    return out
+
+
 # ------------------------------------------------------------------- top-level
 def analyze(run_dir="runs", evolve_log="evolve_log.jsonl"):
     evolve_rows = _load_jsonl(evolve_log) if os.path.exists(evolve_log) else []
@@ -177,6 +280,10 @@ def analyze(run_dir="runs", evolve_log="evolve_log.jsonl"):
         "revision_acceptance_by_role": revision_acceptance_by_role(run_logs),
         "critique_to_revision": critique_patterns_before_accepted(run_logs),
         "flavor_evolution": flavor_evolution(evolve_rows),
+        "explanatory": {
+            **explain_elo_attribution(run_logs),
+            "win_explanations": win_explanations(run_logs),
+        },
     }
 
 
@@ -215,6 +322,34 @@ def render(report) -> str:
             L.append(f"         + after : {c['after']}")
     else:
         L.append("     (no mutation raised the verified-count — gate accepted nothing)")
+
+    L.append("\n5) EXPLANATORY: WHY candidates won or lost  (Elo attribution)")
+    ex = report.get("explanatory", {})
+    L.append("   net Elo by proposer role (role -> model: net Elo over the run):")
+    for role, d in sorted(ex.get("elo_by_role", {}).items(),
+                          key=lambda kv: -kv[1]["net_elo"]):
+        L.append(f"     {role:22} {d['net_elo']:+7.1f}   via {d['model']}")
+    L.append("   critic credit (whose critiques moved Elo): "
+             "role -> Elo credited / decisive revisions:")
+    cc = ex.get("critic_credit", {})
+    if cc:
+        for role, d in sorted(cc.items(), key=lambda kv: -kv[1]["elo_credited"]):
+            L.append(f"     {role:22} {d['elo_credited']:+7.2f}   "
+                     f"({d['decisive_revisions']} decisive / {d['critiques']} critiques) "
+                     f"via {d['model']}")
+    else:
+        L.append("     (no Elo-raising, revision-backed critiques observed)")
+    dec = ex.get("decisive_critiques", [])
+    if dec:
+        L.append("   decisive critiques (a critique -> accepted revision -> Elo gain):")
+        for c in dec[:5]:
+            L.append(f"     [{c['run']} c{c['cycle']}] {c['critic_role']} ({c['critic_model']}) "
+                     f"moved {c['winner_role']} +{c['elo_delta']} Elo "
+                     f"(rev +{c['revision_gain']}): \"{c['critique']}\"")
+    for w in ex.get("win_explanations", []):
+        L.append(f"   [{w['run']}] Elo-winner {w['top_elo_role']} ({w['top_elo_model']}, "
+                 f"net {w['net_elo']:+.1f}); top score by {w['top_score_role']} "
+                 f"({w['top_score']})")
     return "\n".join(L)
 
 

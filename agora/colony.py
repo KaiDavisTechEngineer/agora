@@ -148,7 +148,8 @@ class Colony:
             cand = _parse_candidate(r.text, self.oracle)
             a.last_candidate = cand
             proposals[a.id] = cand
-            self.reporter.proposal(cycle, a.id, a.role, cand, self.oracle.score(cand))
+            self.reporter.proposal(cycle, a.id, a.role, cand, self.oracle.score(cand),
+                                   model=prop_model)
 
         # 2) DEBATE — bounded: each critiquer reviews K proposer-candidates (never its own)
         received: dict[int, list[str]] = {aid: [] for aid in proposals}
@@ -162,7 +163,8 @@ class Colony:
                 r = self.client.complete(self.models["critic"], sys, msg, max_tokens=160)
                 self.cost.charge(self.models["critic"], r.in_tok, r.out_tok)
                 received[pid].append(r.text.strip())
-                self.reporter.critique(cycle, a.id, a.role, pid, r.text.strip())
+                self.reporter.critique(cycle, a.id, a.role, pid, r.text.strip(),
+                                       model=self.models["critic"])
 
         # 3) REVISE (Phase 1) — proposers rewrite using the critiques they received
         if cfg.enable_revision:
@@ -182,14 +184,24 @@ class Colony:
                     proposals[a.id] = revised
                     a.last_candidate = revised
                 self.reporter.revision(cycle, a.id, a.role, original, before_score,
-                                       revised, after_score, accepted)
+                                       revised, after_score, accepted, model=prop_model)
 
         # 4) VALIDATE + 5) RANK  (proposer candidates only)
         scored = sorted(((self.oracle.score(t), aid, t) for aid, t in proposals.items()),
                         reverse=True)
         by_id = {a.id: a for a in self.agents}
+        elo_before = {aid: by_id[aid].elo for _, aid, _ in scored}
         for i in range(len(scored) - 1):
             update_elo(by_id[scored[i][1]], by_id[scored[i + 1][1]])
+
+        # log per-proposer Elo movement this cycle (the explanatory layer, #5, ties a
+        # positive delta back to the critiques that drove the accepted revision)
+        for rank, (s, aid, t) in enumerate(scored, start=1):
+            a = by_id[aid]
+            self.reporter.elo(cycle, aid, a.role, prop_model, score=s, rank=rank,
+                              elo_before=round(elo_before[aid], 1),
+                              elo_after=round(a.elo, 1),
+                              delta=round(a.elo - elo_before[aid], 1))
 
         top_score, _, top_tune = scored[0]
 
@@ -200,7 +212,8 @@ class Colony:
                    f"(score {top_score}). Audit it in 1-2 sentences.")
             r = self.client.complete(self.models["validator"], "You are an auditor.", msg, max_tokens=160)
             self.cost.charge(self.models["validator"], r.in_tok, r.out_tok)
-            self.reporter.audit(cycle, a.id, a.role, top_tune, r.text.strip())
+            self.reporter.audit(cycle, a.id, a.role, top_tune, r.text.strip(),
+                                model=self.models["validator"])
 
         # 6) REMEMBER — global best + shared pool + compressed memory
         improved = top_score > self.global_best_score + cfg.min_improvement
