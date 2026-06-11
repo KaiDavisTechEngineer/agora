@@ -711,7 +711,9 @@ different target, lifting Haiku from never-verifies to verified-at-optimum.
 budget confound is weak for Haiku (its majority3 replies never truncated at 600:
 0 parse-fallbacks in Run 2; mean Haiku outputs run ~150–230 tokens). The evolved flavor
 is the probable cause; the clean falsifier (stock genome, Haiku @2000, majority3,
-~$0.10) is noted, not run. **Frontier #6's full loop is now demonstrated on real
+~$0.10) is noted, not run. *(Subsequently run as Run 11 — confirmed: stock Haiku @2000
+reproduces the 87.5 plateau exactly; the evolved genome is causal.)* **Frontier #6's
+full loop is now demonstrated on real
 models: mutate → gate-accept → persist → reload → verified discovery the baseline
 genome never produced.**
 
