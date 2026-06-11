@@ -1,4 +1,9 @@
-# RESULTS — first real-model integrated run
+# RESULTS — real-model runs (1–12)
+
+> Repo: **https://github.com/KaiDavisTechEngineer/agora** (public) · summary:
+> README § "What 12 real-model runs established" · state: `HANDOFF.md`
+
+# Run 1 — first real-model integrated run
 
 **Command (option a — Haiku in all three colony roles; Sonnet only for the meta flavor-rewrite):**
 ```bash

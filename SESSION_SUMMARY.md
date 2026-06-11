@@ -2,7 +2,8 @@
 
 A self-contained record of a 5-phase implementation session on the `agora` repo
 (a multi-agent "colony" research system). Written so another model can analyze the
-work without the original transcript. Repo: local git, branch `main`.
+work without the original transcript.
+Repo: **https://github.com/KaiDavisTechEngineer/agora** (public), branch `main`.
 
 ---
 
