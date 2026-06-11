@@ -229,3 +229,48 @@ because the limiting factor is now Haiku's reasoning, not its output format.
 
 **The next move (a Sonnet proposer for one run) is your call, not mine.** I am not
 proceeding to it. **Total real spend across both runs: $0.2253 + $0.1463 = $0.3716.**
+
+---
+
+# Run 3 — `and3` on Haiku (FIRST real Z3-certified win) ✅
+
+Under a standing $5.00 engagement budget. Step 1 of the plan: prove the integrated
+pipeline can earn a Z3 certificate *at all* on real model output, using the trivial
+target `and3` (`a∧b∧c`, 1 operator). Identical config to Runs 1–2 except `--target and3`.
+
+| metric | Run 1 | Run 2 | **Run 3** |
+|---|---:|---:|---:|
+| target | majority3 | majority3 | **and3** |
+| **Z3-verified win** | none | none | **YES ✅** |
+| best score | 87.5 (7/8, unverified) | 87.5 (7/8, unverified) | **119.0 (8/8 + minimal, verified)** |
+| `parse_fallback` | 35 | 0 | **0** |
+| `api_error` | 0 | 0 | 0 |
+| spend | $0.2253 | $0.1463 | **$0.1389** |
+
+**Result:** real Haiku synthesized the exactly-correct, minimal formula
+```json
+{"op": "and", "args": [{"var": "a"}, {"var": "b"}, {"var": "c"}]}
+```
+authored by `constructor`, and **Z3 certified it** (`verified: True`). Score 119.0 =
+100 (all 8 rows correct) + 19 parsimony bonus (`max_ops 20 − size 1`). This is the
+**first real verified discovery** the integrated loop has produced.
+
+**What it proves:** the integrate → real-agent synthesis → Z3 verify → genome path works
+end-to-end on real output. Therefore Runs 1–2's failure on `majority3` is **not a
+pipeline bug** — it is Haiku's reasoning ceiling on that specific function (it composes a
+7/8 near-miss but never the full three-term majority). The plan proceeds to Run 4.
+
+**Self-improvement / explainability / spend:**
+- Trickle mutation **rejected** (`constructor` flavor rewrite, gate-evaluated, tied
+  fitness `(verified=1, score=119.0)` — nothing can beat an already-minimal verified
+  formula; correct). Audit: 1 reject, 0 accepted; genome baseline; rotation 0 → 1.
+- Explanatory: **`constructor` authored both verified wins** (2 in the evolve log);
+  `minimizer` was Elo-winner (+68.2 net) via Haiku; revision acceptance 100/100/75%.
+- Spend reconciles: Haiku $0.1379 / 152c + Sonnet $0.0010 / 1c = **$0.1389 = total**;
+  **$0.1389 / $0.50 = 28% of cap**; guard armed, never fired.
+
+**Invariants (Run 3):** I1 — the certificate is a true Z3 proof, nothing false admitted;
+I2 — $0.1389 ≤ $0.50, per-model sums reconcile; I3 — only an allowlisted post-gate
+`flavor` mutation; I4 — mutation re-passed the gate, didn't improve, not persisted.
+
+**Cumulative real spend: $0.3716 + $0.1389 = $0.5105 / $5.00.**
