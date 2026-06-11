@@ -1,5 +1,10 @@
 # agora
 
+![tests](https://img.shields.io/badge/tests-126%20passing-brightgreen)
+![python](https://img.shields.io/badge/python-3.9%2B-blue)
+![requirements](https://img.shields.io/badge/requirements-anthropic%20%E2%80%A2%20z3--solver%20%E2%80%A2%20pytest-informational)
+![license](https://img.shields.io/badge/license-MIT-lightgrey)
+
 > Repo: **https://github.com/KaiDavisTechEngineer/agora** (public)
 
 A co-scientist **agent society**: a population of role-playing agents that propose
