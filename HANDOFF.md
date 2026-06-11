@@ -16,6 +16,8 @@ tests green**, tree clean at commit `2ec1e23`.
 | 6 | Sonnet, parity4 @2000 tok | **verified ✅** at optimum (108.0); falsifier confirmed emission | $0.7331 |
 | **7** | **Haiku, parity4 @2000 tok** | no win (reasoning-bound, mean out 209 tok) — **but FIRST ACCEPTED MUTATION** 🧬 | $0.2600 |
 | **8** | **parity5 (k=5), Sonnet prop. @2000, cap $2.63** | **verified ✅ both evals** — 51 ops vs 36-op ref: correct but not minimal; minimality is the new frontier | $1.2840 |
+| 9 | parity5 minimization probe: seed_best=51-op, Sonnet @2000, 6 cycles | **gap does NOT close** — flat 101.0, 0 improvements; agents copy the seed by cycle 4. Minimization at k=5 = Sonnet reasoning wall | $0.8467 |
+| 10 | evolution battery: evolve(steps=4), Haiku ×3 @2000, majority3+parity4, from Run-7 genome (no extra steering — per Run 9 data), cap $2.00 | **launched — in flight** | — |
 
 **Run 7 detail (the milestone):** the trickle step accepted its mutation for the first
 time in seven runs. A Sonnet-authored rewrite of the `constructor` flavor improved
@@ -30,13 +32,12 @@ Oracle fitness `(0, 62.5) → (0, 81.25)` — the **mutated-genome eval climbed 
 
 ## Spend
 
-**Cumulative: $3.6529 / $5.00 (73%); $1.3471 remaining.**
-Standing rules (also in memory `agora-spend-authorization`): $5.00 total envelope,
-runs pre-approved within it; default per-run cap $3.50, but **fit-don't-skip** — the
-next run's cap must be **$1.34**. Per-run `--cap` + `halt_before_overspend` machinery
-unchanged. **The authorized sequence is complete** — further runs are proposals only
-(see RESULTS.md Run 8 § for the three candidates: minimization probe, evolution
-battery, or stop).
+**Cumulative through Run 9: $4.4996** (vs the original $5.00 envelope: 90%).
+**Authorization update (2026-06-11):** user directed "money is not the constraint —
+raise the cap as needed under the fit rule" and explicitly authorized Runs 9 + 10;
+Run 10 (cap $2.00) will exceed the original envelope with that authorization on
+record. Cap machinery (`--cap` + `halt_before_overspend`) and I1–I4 unchanged;
+cumulative tracked and reported against both the original envelope and actuals.
 
 ## Invariants I1–I4 — status: all held, every run
 

@@ -643,3 +643,46 @@ next run's cap would be **$1.34**. Candidates, in order of value:
 3. **Stop here** — the engagement already has: 5 verified wins across 4 targets, a
    confirmed three-rung bottleneck ladder, the first gate-passed mutation accept, and
    $1.35 of envelope unspent.
+
+---
+
+# Run 9 — minimization probe: the parsimony gap does NOT close ✗ (a real finding)
+
+User-authorized (with "money is not the constraint; raise caps as needed"). New
+post-gate plumbing: `Config.seed_best` (commit `79b0c66`) warm-starts the colony's
+`BEST_KNOWN` with Run 8's verified 51-op parity5 solution (committed as
+`parity5_verified_51op.json`, re-verified on extract). Direct colony run: parity5,
+Sonnet proposer / Haiku critic+validator @2000 tokens, **6 cycles**, cap $1.34. Exit 0.
+
+| metric | value |
+|---|---|
+| seed floor | 101.0 (51 ops, Z3-verified) |
+| **final best** | **101.0 — unchanged, all 6 cycles flat; converged** |
+| proposals/revisions beating the seed | **0 / 0** |
+| best proposal per cycle | 50.0, 50.0, 50.0, 101.0, 101.0, 101.0 |
+| `parse_fallback` | 15 |
+| spend | $0.8467 / $1.34 (Sonnet $0.7431/36c, Haiku $0.1036/78c) |
+
+**Reading:** with correctness handed to it and an explicit "make it smaller" role
+(`minimizer`), Sonnet never produced a single verified formula smaller than the seed in
+36 proposer calls. The cycle-by-cycle proposal quality shows what it *did* learn: by
+cycle 4 agents converged on **copying the seed back verbatim** (best proposal jumped
+from 50.0 junk to exactly 101.0) — imitation, not compression. The minimal 36-op
+XOR-fold was reachable in budget (~430 JSON tokens) and never found.
+
+**Conclusion: minimization at k=5 is a genuine Sonnet reasoning wall.** The correctness
+gap closed with emission room (Run 6); the parsimony gap does **not** close with
+seeding + role steering. This cleanly separates the two abilities: *finding* an
+equivalent formula vs *structuring* the minimal one. (Decision consequence for Run 10,
+per the standing instruction: extra minimality steering is NOT folded into the battery
+genome — the probe showed it doesn't help; the Run-7 genome's already-minimality-heavy
+constructor flavor stands as-is.)
+
+**Invariants:** I1 — the seed itself re-verified, nothing falsely certified; I2 —
+$0.8467 ≤ $1.34, per-model reconciles; I3 — `seed_best` is post-gate (changes what
+agents SEE, never how they are judged); I4 — n/a (no trickle step in this probe).
+
+**Cumulative real spend: $3.6529 + $0.8467 = $4.4996 / $5.00 (90%).** Run 10 (battery,
+cap $2.00) will exceed the original $5.00 envelope — explicitly authorized by the
+user's "money is not the constraint; raise the cap as needed" directive; cumulative
+will be reported against both the original envelope and actuals.
