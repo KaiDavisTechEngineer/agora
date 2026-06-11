@@ -161,3 +161,71 @@ path — flagged for your call, deliberately left alone.
 
 **Total real spend this run: $0.2253.** Artifacts: `/tmp/agora_real/{stdout.log,
 genome.json, evolve_log.jsonl, runs/}`.
+
+---
+
+# Run 2 — after tightening proposer-path JSON prompting
+
+**Only change between runs:** the committed proposer-path structured-output fix
+(commit `910c37c`) — stronger "JSON only, no markdown, no prose, start with `{`"
+instruction + schema example on `system_prompt`/`revise_prompt`, plus a guarded `{`
+assistant-prefill on the two proposer calls (Haiku supports prefill). **Identical**
+command, models, `--cap 0.50`, `seed=7`, fresh `/tmp/agora_real`. Exit 0. Nothing else
+changed — the comparison against Run 1 is the point.
+
+## Headline comparison
+
+| metric | Run 1 | Run 2 | delta |
+|---|---:|---:|---|
+| **`parse_fallback` events** | **35** | **0** | **−35 → 0** (target was < 5) |
+| `api_error` events | 0 | 0 | — |
+| Z3-verified win | none | **none** | unchanged |
+| best score (majority3) | 87.5 (7/8 rows) | 87.5 (7/8 rows) | unchanged |
+| total spend | $0.2253 | **$0.1463** | −35% |
+| total calls | 153 | 153 | — |
+| output tokens / call | ~232 | ~125 | roughly halved |
+
+## What the fix did — and did not — accomplish
+
+- **Did:** the JSON-compliance bottleneck is **eliminated.** Real Haiku now returns a
+  bare formula AST instead of markdown analysis, so **parse_fallback dropped 35 → 0**:
+  the colony searched on **100% of its budget** instead of ~⅔. The prefill (`{`) plus
+  the explicit no-markdown framing also cut output tokens ~in half, so the run was
+  **cheaper** ($0.1463 vs $0.2253) despite a slightly longer system prompt.
+- **Did not:** **still no Z3-verified win.** With clean JSON on every proposal, Haiku
+  *still* plateaus at **87.5 (7 of 8 rows)** on `majority3` — both evaluations' best
+  formulas are valid 7/8 near-misses (`(a∧c)∨(b∧c)` and `(b∧(a∨c))`), each dropping one
+  pairwise-AND term of the true majority `(a∧b)∨(a∧c)∨(b∧c)`. Z3 correctly rejects both.
+  **The bottleneck has moved from output *formatting* (now solved) to Haiku's *reasoning
+  depth*** — it reliably composes a 7/8 formula but not the full 8/8 majority.
+
+## Self-improvement, explainability, spend (Run 2)
+
+- **Trickle mutation:** rejected again — `constructor` flavor rewrite, evaluated under
+  the same Z3 gate, tied fitness `(0, 87.5)`, not persisted (audit: 1 reject, 0 accepted;
+  genome stayed baseline; rotation 0 → 1).
+- **Explanatory:** `generalizer` was the Elo winner (+91.2 net) via Haiku; revision
+  acceptance 100% / 100% / 88% across proposers. (Note: with 0 parse-fallbacks the
+  proposals are all real formulas, and this seed produced 0 *decisive* critiques —
+  Elo moved via head-to-head ranking rather than score-raising revisions; the
+  attribution shape is intact.)
+- **Spend reconciliation:** Haiku $0.1455 / 152 calls + Sonnet $0.0008 / 1 call (meta
+  flavor-rewrite) = **$0.1463 = global total** ✓; **$0.1463 / $0.50 = 29% of cap**;
+  guard armed, never fired. Tokens: 50,080 in / 19,142 out (cumulative).
+
+## Invariants (Run 2)
+
+- **I1:** no false certification; both 87.5 near-misses correctly Z3-rejected.
+- **I2:** $0.1463 ≤ $0.50; per-model sums reconcile; guard never had to fire.
+- **I3:** only mutation was an allowlisted post-gate `flavor`; gate/cap/score untouched.
+- **I4:** mutated genome re-passed the same gate, failed to improve, not persisted.
+
+## Conclusion — stopping here (per instruction)
+
+Run 2 meets the stop condition you set: **no verified win AND parse fallbacks under ~5
+(in fact 0).** The structured-output change did its job — it removed the formatting
+bottleneck cleanly and cheaply — but a verified `majority3` solution did **not** emerge,
+because the limiting factor is now Haiku's reasoning, not its output format.
+
+**The next move (a Sonnet proposer for one run) is your call, not mine.** I am not
+proceeding to it. **Total real spend across both runs: $0.2253 + $0.1463 = $0.3716.**
