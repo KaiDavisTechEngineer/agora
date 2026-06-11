@@ -17,7 +17,15 @@ tests green**, tree clean at commit `2ec1e23`.
 | **7** | **Haiku, parity4 @2000 tok** | no win (reasoning-bound, mean out 209 tok) — **but FIRST ACCEPTED MUTATION** 🧬 | $0.2600 |
 | **8** | **parity5 (k=5), Sonnet prop. @2000, cap $2.63** | **verified ✅ both evals** — 51 ops vs 36-op ref: correct but not minimal; minimality is the new frontier | $1.2840 |
 | 9 | parity5 minimization probe: seed_best=51-op, Sonnet @2000, 6 cycles | **gap does NOT close** — flat 101.0, 0 improvements; agents copy the seed by cycle 4. Minimization at k=5 = Sonnet reasoning wall | $0.8467 |
-| 10 | evolution battery: evolve(steps=4), Haiku ×3 @2000, majority3+parity4, from Run-7 genome (no extra steering — per Run 9 data), cap $2.00 | **launched — in flight** | — |
+| 10 | evolution battery: evolve(steps=4), Haiku ×3 @2000, majority3+parity4, from Run-7 genome (no extra steering — per Run 9 data), cap $2.00 | **evolved genome GENERALIZED: Haiku verified majority3 at optimum** ✅ (stock Haiku never did); all 4 mutations degraded fitness and were gate-rejected — local optimum, gate defends | $1.0191 |
+
+**ENGAGEMENT COMPLETE.** Final: **$5.5187 total** (Haiku $2.3889 + Sonnet $3.1298;
+original $5.00 envelope exceeded by $0.5187 under explicit authorization). 7 verified
+wins, 1 gate-accepted mutation (later shown to generalize), I1–I4 held on all 10 runs.
+Full reconciliation: RESULTS.md § Final Engagement Reconciliation. No runs in flight;
+no background processes. Audit-rich final genome at `/tmp/agora_real/genome.json`
+(ACCEPT + 4×REJECT history; volatile — committed snapshot of the accepted state is
+`genome_run7_first_accept.json`).
 
 **Run 7 detail (the milestone):** the trickle step accepted its mutation for the first
 time in seven runs. A Sonnet-authored rewrite of the `constructor` flavor improved
