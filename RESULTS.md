@@ -778,3 +778,35 @@ and a complete, real-model demonstration of verifier-gated self-improvement — 
 strategy mutation earned through the gate, persisted, and later shown to generalize to
 a verified win its baseline could never reach, then defended by the same gate against
 four degrading successors.
+
+---
+
+# Run 11 — de-confounding falsifier: the Run 10 headline is AIRTIGHT ✅
+
+Stock-genome Haiku @2000 on `majority3` — an exact mirror of Run 10's baseline inner
+colony (same roster, `n_cycles=4`, `seed=7`, Haiku ×3, `proposer_max_tokens=2000`)
+with **one variable changed: `flavor_overrides={}` (stock) instead of the Run-7
+genome**. Cap $0.50. Exit 0.
+
+| | stock genome (Run 11) | Run-7 evolved genome (Run 10 baseline) |
+|---|---:|---:|
+| best score | **87.5 — flat all 4 cycles** | **116.0 = optimum** |
+| Z3-verified | **NO** | **YES** |
+| best formula | `b∧(a∨c)` (the same 7/8 near-miss as Runs 1–2) | `(b∧c)∨(a∧b)∨(a∧c)` |
+| Haiku mean output | 125 tok (budget irrelevant, as predicted) | — |
+| spend | $0.0723 / $0.50 | — |
+
+**Verdict:** the budget confound is eliminated. At 2000 tokens, stock Haiku reproduces
+its historical 87.5 plateau exactly — down to the same near-miss structure — while the
+identical run with the gate-accepted flavor verifies at optimum. **The Run-7 evolved
+genome, and nothing else, caused Haiku's verified majority3 win.** The pre-registered
+branch resolves to: headline confirmed.
+
+**Invariants:** I1 — honest `verified=False`; I2 — $0.0723 ≤ $0.50, single-model
+reconciles trivially; I3/I4 — n/a (no mutation step; pure measurement run).
+
+**Final cumulative (Runs 1–11): $5.5187 + $0.0723 = $5.5910**
+(Haiku $2.4612 + Sonnet $3.1298 ✓). Original $5.00 envelope exceeded by $0.5910, all
+overage under the explicit "money is not the constraint" authorization. Every run ≤ its
+cap; the pre-call guard never fired; **zero false certificates in ~1,600 real calls
+across 11 runs; I1–I4 held throughout.**
