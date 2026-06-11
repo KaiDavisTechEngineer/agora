@@ -291,15 +291,21 @@ Step 2 of the plan: a `claude-sonnet-4-6` proposer (critic/validator stay Haiku)
 | spend | $0.2253 | $0.1463 | **$0.2803** (cap 1.00) |
 
 **Result — the Haiku reasoning ceiling was the cause.** With a Sonnet proposer the loop
-verified `majority3`, and the winning formula is **smaller than the canonical reference**:
+verified `majority3` with a structurally different formula:
 ```json
 {"op":"or","args":[
   {"op":"and","args":[{"var":"a"},{"var":"b"}]},
   {"op":"and","args":[{"var":"c"},{"op":"or","args":[{"var":"a"},{"var":"b"}]}]}]}
 ```
-`(a∧b) ∨ (c∧(a∨b))` — **4 operators**, vs the hand-written reference's 5. Score **116.0**
-actually **exceeds the estimated optimum (115)** because the reference wasn't truly
-minimal. A real agent found a *better-than-reference* solution, Z3-confirmed equivalent.
+`(a∧b) ∨ (c∧(a∨b))` — **4 operators, exactly matching the reference's parsimony**
+(`_ast_size(ref) = 4`; score 116.0 = `optimum_estimate()`). 
+
+> **Correction (post-Run 5 review):** this section originally claimed the formula *beat*
+> a "5-op reference" and "exceeded the estimated optimum (115)". That was wrong — it was
+> derived from a stale code comment ("ref size 5") rather than from `_ast_size`, which
+> counts 4 operators for both the reference and the winner. Sonnet **matched** the
+> optimum (116.0 = 116.0) with a different structure; it did not beat it. The verified
+> win itself is unaffected.
 
 This is the clean A/B: Runs 1–2 (Haiku proposer) plateaued at 7/8; Run 4 (Sonnet
 proposer, everything else identical) reached 8/8 + minimal. The bottleneck was proposer
@@ -323,3 +329,105 @@ re-passed the gate, didn't improve, not persisted.
 
 **Cumulative real spend: $0.5105 + $0.2803 = $0.7908 / $5.00.** A verified → plan
 proceeds to Run 5 (difficulty 2).
+
+---
+
+# Run 5 — `parity4` (k=4), Sonnet proposer: hard plateau at the fallback floor ✗
+
+Step 3 (bonus): same Sonnet-proposer config as Run 4, `--difficulty 2` (`parity4`,
+4-input XOR, reference AST = 20 operators), `--cap 1.00`. Exit 0.
+
+| metric | Run 4 (majority3) | **Run 5 (parity4)** |
+|---|---:|---:|
+| Z3-verified win | YES | **none** |
+| best score | 116.0 (verified) | **50.0 — the fallback floor** |
+| score curve | climbed, verified | **flat 50.0 across all 8 cycles (both evals)** |
+| `parse_fallback` | 0 | **43** (of ~48 proposer replies ≈ 90%) |
+| Sonnet avg output tokens/call | small (short ASTs) | **522 of the 600 cap** |
+| spend | $0.2803 | **$0.5850 / $1.00** |
+
+**What happened — a new, different bottleneck.** `{"var":"a"}` (the parse-fallback
+default) scores exactly 50.0 on parity4, because any single variable agrees with parity
+on exactly half the rows. The best score never moved off 50.0: **the colony never
+obtained a single parseable candidate better than the default.** ~90% of Sonnet's
+generate/revise replies failed to parse, and the smoking gun is the token budget:
+Sonnet averaged **522 output tokens against the 600 `max_tokens` cap** — i.e. routinely
+truncated. A parity4-sized AST alone is ~240 tokens of JSON (vs ~55 for the majority3
+winner); on a hard target Sonnet also reasons in prose before the JSON (it gets **no**
+`{`-prefill — prefill is gated off for 4.6-family models, which would 400), so
+reasoning + a large AST overruns 600 tokens and the JSON arrives cut off mid-object.
+
+**Crucially, Run 5 is therefore *confounded* as a reasoning probe:** it does not show
+that Sonnet can't solve parity4 — it shows the harness never let a complete answer
+through. The binding constraint moved from proposer reasoning (Runs 1–2 → 4) to
+**emission budget × AST size**.
+
+**Self-improvement / explainability / spend:**
+- Trickle mutation **rejected** (tied at the floor `(0, 50.0)`); audit: 1 reject,
+  0 accepted; genome baseline; rotation 0 → 1. With ~90% fallbacks the explanatory
+  section is thin by construction (default candidates carry no real critique→revision
+  signal) — honest, not broken.
+- Spend reconciles: **Sonnet $0.4883 / 49 calls + Haiku $0.0967 / 104 calls = $0.5850 =
+  total**; 58.5% of the $1.00 cap; guard armed, never fired. Run 5 is the most expensive
+  run precisely *because* of the failure mode — truncated-at-cap replies bill ~the full
+  600 output tokens while delivering nothing parseable.
+
+**Invariants (Run 5):** I1 — nothing falsely certified (`verified=False` throughout);
+I2 — $0.5850 ≤ $1.00, per-model reconciles; I3 — only an allowlisted post-gate `flavor`
+mutation; I4 — mutation re-passed the gate, didn't improve, not persisted.
+
+**Cumulative real spend: $0.7908 + $0.5850 = $1.3758 / $5.00.**
+
+---
+
+# What we actually learned (Runs 1–5)
+
+**1. The A/B held — then the bottleneck moved.** Runs 1/2 vs Run 4 cleanly isolated
+*proposer reasoning* as the majority3 bottleneck: identical loop, Haiku→Sonnet swap,
+7/8 plateau → verified 8/8 at optimal parsimony. Run 5 **breaks the naive extrapolation**
+("stronger proposer ⇒ next failure is again reasoning"): at k=4 the run failed *upstream*
+of reasoning, in candidate **emission** — 90% of replies truncated at the 600-token cap
+before the verifier ever saw a complete formula. The corrected ladder is:
+*Run 1 bottleneck = output formatting (fixed by prompt+prefill) → Run 2/4 bottleneck =
+proposer reasoning (fixed by model choice) → Run 5 bottleneck = output token budget
+(unfixed, masks any reasoning question).*
+
+**2. The "difficulty ceiling" pattern is real but mis-labeled.** Crack rate tracks the
+**size of the answer the agent must emit**, at least as much as logical difficulty:
+
+| target | ref ops | AST JSON ~tokens | outcome |
+|---|---:|---:|---|
+| and3 | 1 | ~10 | cracked by **Haiku** (Run 3) |
+| majority3 | 4 | ~60 | cracked by **Sonnet only** (Run 4) |
+| parity4 | 20 | ~240 (+ prose, no prefill) | **nobody — 90% truncated** (Run 5) |
+
+With emission confounded at the top rung, op-count-vs-crack-rate cannot yet be read as
+a *reasoning* ceiling curve.
+
+**3. Cheapest falsifying experiment (proposed, not executed):** rerun Run 5 changing
+**one variable — the proposer output budget** (e.g. `max_tokens` 600 → 2000 on
+generate/revise; a small, post-gate plumbing knob — the gate, scoring, and cap stay
+untouched; `halt_before_overspend` already prices the worst case conservatively).
+Estimated cost ~$0.60–1.00 at `--cap 1.50`.
+- If parse_fallbacks collapse and the curve climbs off 50.0 → the k=4 ceiling was
+  emission, and the table above becomes a genuine reasoning ladder again.
+- If fallbacks collapse but the score still plateaus below 100 → *that* is the first
+  clean evidence of a Sonnet reasoning ceiling on parity (and the honest next rung).
+A cheaper half-step (~$0.30): `--target parity3` (11-op reference, k=3) with Sonnet at
+the current 600 budget — it sits between majority3 and parity4 in emission size and
+would bracket the truncation threshold without any code change.
+
+**4. Two harness lessons worth keeping:** (a) the parse-fallback default (`{"var":"a"}`)
+scores 50.0 on parity targets — a *plausible-looking* floor; without the Stage-1
+`parse_fallback` events, Run 5 would have read as "agents tried and scored 50," not
+"agents were never heard." Observability of degraded paths changed the conclusion.
+(b) Truncation is the most expensive failure mode: you pay for ~the full output budget
+and parse nothing. A budget-aware `max_tokens` for large-AST targets pays for itself.
+
+**Final spend reconciliation:** Run 1 $0.2253 + Run 2 $0.1463 + Run 3 $0.1389 + Run 4
+$0.2803 + Run 5 $0.5850 = **$1.3758 of the $5.00 envelope (27.5%); $3.6242 remaining.**
+Per-model across the engagement: Haiku $0.7031, Sonnet $0.6727. Every run ≤ its per-run
+cap; the pre-call guard never had to fire; I1–I4 held on all five runs.
+
+**Stopping here per instruction** — Run 5 plateaued, so the next move (the max_tokens
+falsifier, the parity3 half-step, or something else) is the user's call.
