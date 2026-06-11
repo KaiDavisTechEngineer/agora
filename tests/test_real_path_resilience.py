@@ -35,19 +35,19 @@ def _rows(path):
 
 class _RaisingClient:
     """Simulates an API/network failure that survives the SDK's own retries."""
-    def complete(self, model, system, user, max_tokens=600):
+    def complete(self, model, system, user, max_tokens=600, prefill=None):
         raise RuntimeError("simulated API failure (post-retry)")
 
 
 class _GarbageClient:
     """Returns a successful but unparseable reply (refusal-style prose)."""
-    def complete(self, model, system, user, max_tokens=600):
+    def complete(self, model, system, user, max_tokens=600, prefill=None):
         return LLMReply("I'm sorry, I can't help with that. No JSON here.", 7, 9)
 
 
 class _CapRaisingClient:
     """A client whose call itself raises SpendCapExceeded (must NOT be contained)."""
-    def complete(self, model, system, user, max_tokens=600):
+    def complete(self, model, system, user, max_tokens=600, prefill=None):
         raise SpendCapExceeded("from inside the client")
 
 

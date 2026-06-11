@@ -480,11 +480,16 @@ class FormulaSynthesisOracle(Oracle):
 
     def system_prompt(self, flavor):
         base = (f"You are a logic synthesizer. Variables: {', '.join(self.vars)}. "
-                f"Propose a Boolean formula as STRICT JSON AST using nodes "
+                f"Propose a Boolean formula as a STRICT JSON AST using only these nodes: "
                 f'{{"op":"and|or|not","args":[...]}} and {{"var":"a"}}. '
                 f"{self.target_spec_text()} "
-                f"Your formula must output exactly this for every input row, "
-                f"then be as SMALL as possible. JSON only.")
+                f"Your formula must output exactly this for every input row, then be as "
+                f"SMALL as possible. "
+                f"OUTPUT FORMAT (critical): reply with ONLY a single JSON object — the "
+                f"formula AST itself. NO markdown, NO code fences, NO headings, NO prose, "
+                f"NO analysis, NO explanation. Your entire reply must start with '{{' and "
+                f'end with \'}}\'. Example of a valid reply: '
+                f'{{"op":"or","args":[{{"var":"a"}},{{"var":"b"}}]}}')
         return base + " " + flavor
 
     def critique_prompt(self, c):
@@ -496,7 +501,9 @@ class FormulaSynthesisOracle(Oracle):
         joined = " | ".join(critiques) if critiques else "none"
         return (f"{self.target_spec_text()} Your formula was {json.dumps(self.normalize(c))}. "
                 f"Critiques: {joined}. Revise to match the target on MORE rows and be smaller. "
-                f"JSON only.")
+                f"OUTPUT FORMAT (critical): reply with ONLY the revised JSON AST object — "
+                f"NO markdown, NO code fences, NO prose, NO explanation. The reply must "
+                f"start with '{{' and end with '}}'.")
 
 
 ORACLES = {"rotary": RotaryOracle, "repurposing": DrugRepurposingOracle,

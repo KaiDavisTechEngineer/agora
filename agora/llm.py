@@ -20,17 +20,29 @@ class LLMReply:
     out_tok: int
 
 
+def _supports_prefill(model: str) -> bool:
+    """Assistant-turn prefill is removed (400) on Fable 5 and the Opus/Sonnet 4.6+
+    family; among the models agora prices, only Haiku 4.5 still accepts it. Gate on
+    that so a `{`-prefill is sent only where the SDK supports it (never 400s)."""
+    return "haiku" in model
+
+
 class AnthropicClient:
     def __init__(self):
         from anthropic import Anthropic  # imported lazily so mock mode needs no SDK
         self.c = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    def complete(self, model, system, user, max_tokens=600) -> LLMReply:
+    def complete(self, model, system, user, max_tokens=600, prefill=None) -> LLMReply:
+        messages = [{"role": "user", "content": user}]
+        use_prefill = bool(prefill) and _supports_prefill(model)
+        if use_prefill:                              # force JSON: start the reply at `{`
+            messages.append({"role": "assistant", "content": prefill})
         r = self.c.messages.create(
-            model=model, max_tokens=max_tokens,
-            system=system, messages=[{"role": "user", "content": user}],
+            model=model, max_tokens=max_tokens, system=system, messages=messages,
         )
         text = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        if use_prefill:                              # re-attach the prefilled prefix
+            text = prefill + text
         return LLMReply(text, r.usage.input_tokens, r.usage.output_tokens)
 
 
@@ -40,7 +52,9 @@ class MockClient:
         self.oracle = oracle
         self.rng = rng
 
-    def complete(self, model, system, user, max_tokens=600) -> LLMReply:
+    def complete(self, model, system, user, max_tokens=600, prefill=None) -> LLMReply:
+        # `prefill` is a real-client JSON-forcing knob; the mock already returns valid
+        # JSON, so it is accepted and ignored (keeps the client interface uniform).
         from .roles import ROLE_REGISTRY
         role = _tag(user, "ROLE")
         low = user.lower()

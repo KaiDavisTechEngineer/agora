@@ -83,7 +83,7 @@ class Colony:
 
     # ------------------------------------------------------- the single paid-call funnel
     def _complete(self, model, system, user, max_tokens=600, *,
-                  stage="?", cycle=0, role="?"):
+                  stage="?", cycle=0, role="?", prefill=None):
         """Every paid model call goes through here: an OPTIONAL pre-call budget guard,
         then the call, then charge(). When `halt_before_overspend` is set, a call whose
         worst-case cost (estimated input + max_tokens output) would cross the cap is
@@ -100,7 +100,8 @@ class Colony:
                     f"projected spend would cross cap ${self.cost.cap:.2f}; halting "
                     f"BEFORE the call (spent ${self.cost.usd:.4f} over {self.cost.calls}).")
         try:
-            r = self.client.complete(model, system, user, max_tokens=max_tokens)
+            r = self.client.complete(model, system, user, max_tokens=max_tokens,
+                                     prefill=prefill)
         except SpendCapExceeded:
             raise                                     # never contain a budget halt
         except Exception as e:                        # API/network failure mid-cycle
@@ -180,7 +181,7 @@ class Colony:
         for a in proposers:
             sys = self.oracle.system_prompt(a.flavor)
             r = self._complete(prop_model, sys, a.context(self.global_best, self.shared),
-                               stage="generate", cycle=cycle, role=a.role)
+                               stage="generate", cycle=cycle, role=a.role, prefill="{")
             cand, fell_back = _parse_candidate(r.text, self.oracle)
             if fell_back:
                 self.reporter.parse_fallback(cycle, a.id, a.role, "generate")
@@ -212,7 +213,7 @@ class Colony:
                     continue
                 msg = self.oracle.revise_prompt(proposals[a.id], crits)
                 r = self._complete(prop_model, self.oracle.system_prompt(a.flavor), msg,
-                                   stage="revise", cycle=cycle, role=a.role)
+                                   stage="revise", cycle=cycle, role=a.role, prefill="{")
                 revised, fell_back = _parse_candidate(r.text, self.oracle)
                 if fell_back:
                     self.reporter.parse_fallback(cycle, a.id, a.role, "revise")
