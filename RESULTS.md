@@ -516,3 +516,63 @@ Cap arithmetic under the standing rules: the $3.50 default per-run cap no longer
 
 Recommendation: **2 then 1** — 2 is cheap and protects the engagement's headline causal
 claim; 1 is the genuine frontier probe. Both fit the remaining envelope together.
+
+---
+
+# Run 7 — hygiene probe: Haiku on parity4 @ 2000 tokens — FIRST ACCEPTED MUTATION 🧬
+
+Haiku in all three roles, `parity4`, `--proposer-max-tokens 2000`, `--cap 2.89`
+(fit rule: $5.00 − $2.1089 cumulative). Exit 0.
+
+**Operational note (the "hang" that wasn't):** mid-run the evolve log went quiet for
+~4.5 minutes and looked hung. Post-mortem: the process was alive and exited cleanly
+before any kill was needed — `evolve_log.jsonl` only writes at **evaluation
+boundaries**, and at a 2000-token budget each 76-call colony evaluation stretches to
+~4–5 minutes, so the inter-eval window is silent by design. No API timeout, no retry
+storm, no infinite loop; run-log files were advancing throughout. (If long-budget runs
+become the norm, an explicit SDK `timeout=` plus per-call heartbeat events would make
+this observable — proposed, not implemented; no defect occurred.)
+
+## The hygiene answer: Haiku's ceiling is genuinely reasoning, not emission
+
+| metric | Run 6 (Sonnet @2000) | **Run 7 (Haiku @2000)** |
+|---|---:|---:|
+| Z3-verified win | YES (108.0 = optimum) | **none** |
+| best score | 108.0 | **81.25 (13/16 rows)** |
+| `parse_fallback` | 11 | **1** |
+| proposer mean output | 527 tok | **209 tok** |
+| spend | $0.7331 | **$0.2600 / $2.89** |
+
+Haiku, given the same 2000-token room that let Sonnet crack parity4, **does not crack
+it** — and the telling number is its mean output: **209 tokens**, nowhere near either
+the old 600 cap or the new 2000 one. Haiku's replies were never being truncated; its
+parity4 failure is **reasoning-bound, not emission-bound**. This is exactly the
+asymmetry the probe was bought to check: *Sonnet's* Run-5 failure was emission (Run 6
+proved it), *Haiku's* failures were reasoning all along — the Run 1/2→4 attribution
+stands, now un-confounded on both sides.
+
+## Milestone: the I4 accept path fired on real models for the first time
+
+The trickle step **ACCEPTED its mutation** — first accept in seven runs:
+
+- Current genome on parity4: fitness `(0, 62.5)`. Mutated `constructor` flavor:
+  fitness `(0, 81.25)` — equal verified-count, strictly higher Oracle score →
+  `is_improvement` passed → **persisted to genome.json** with the audit entry
+  (`ACCEPT, verifier-gated improvement`) and a history record.
+- The accepted flavor (Sonnet-authored rewrite):
+  > *"Role: constructor. Synthesize the **smallest possible** Boolean formula that is
+  > **exactly correct on every single row** of the truth table—minimize literals and
+  > operators ruthlessly while guaranteeing zero mismatches."*
+- The score curves show the real effect: baseline genome plateaued at 62.5; the mutated
+  genome's eval opened at 75.0 and climbed to 81.25 — a genuine, Oracle-measured
+  improvement in how Haiku constructs candidates (not a verified win, but a better
+  climber). Frontier #6 has now demonstrably **evolved a strategy on real models,
+  through the gate** (I3 surface, I4 re-pass — both exercised on the accept side at
+  last). Genome snapshot preserved at `/tmp/agora_keep/genome_run7_first_accept.json`.
+
+**Invariants:** I1 — nothing certified (`verified=False`, honest); I2 — $0.2600 ≤
+$2.89, per-model reconciles (Haiku $0.2590/152c + Sonnet meta $0.0010/1c); I3 — the
+accepted mutation is an allowlisted `flavor` on a proposer; I4 — it persisted **only**
+after re-passing the same Oracle gate with strictly better fitness.
+
+**Cumulative real spend: $2.1089 + $0.2600 = $2.3689 / $5.00 (47%).**

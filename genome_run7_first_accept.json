@@ -1,0 +1,56 @@
+{
+  "genome": {
+    "constructor": "Role: constructor. Synthesize the **smallest possible** Boolean formula that is **exactly correct on every single row** of the truth table\u2014minimize literals and operators ruthlessly while guaranteeing zero mismatches.",
+    "minimizer": "Take a correct formula and make it smaller.",
+    "generalizer": "Find a structurally different formula for the same target."
+  },
+  "rotation_index": 1,
+  "history": [
+    {
+      "target": "parity4",
+      "role": "constructor",
+      "before_fitness": [
+        0,
+        62.5
+      ],
+      "after_fitness": [
+        0,
+        81.25
+      ],
+      "before": "Build a candidate formula that matches the target spec.",
+      "after": "Role: constructor. Synthesize the **smallest possible** Boolean formula that is **exactly correct on every single row** of the truth table\u2014minimize literals and operators ruthlessly while guaranteeing zero mismatches.",
+      "mutation": {
+        "kind": "flavor",
+        "role": "constructor",
+        "value": "Role: constructor. Synthesize the **smallest possible** Boolean formula that is **exactly correct on every single row** of the truth table\u2014minimize literals and operators ruthlessly while guaranteeing zero mismatches."
+      }
+    }
+  ],
+  "battery": [
+    "parity4"
+  ],
+  "params": {},
+  "audit": [
+    {
+      "when": 0,
+      "phase": "trickle",
+      "decision": "ACCEPT",
+      "target": "parity4",
+      "role": "constructor",
+      "mutation": {
+        "kind": "flavor",
+        "role": "constructor",
+        "value": "Role: constructor. Synthesize the **smallest possible** Boolean formula that is **exactly correct on every single row** of the truth table\u2014minimize literals and operators ruthlessly while guaranteeing zero mismatches."
+      },
+      "reason": "verifier-gated improvement",
+      "cur_fitness": [
+        0,
+        62.5
+      ],
+      "cand_fitness": [
+        0,
+        81.25
+      ]
+    }
+  ]
+}
