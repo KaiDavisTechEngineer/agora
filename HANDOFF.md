@@ -1,8 +1,11 @@
 # HANDOFF — agora real-run engagement state
 
 Snapshot for whoever (or whichever session) picks this up. Full narrative in
-`RESULTS.md` (Runs 1–7) and `SESSION_SUMMARY.md` (build phases 0–5). Suite: **124
-tests green**, tree clean at commit `2ec1e23`.
+`RESULTS.md` (Runs 1–12), README § "What 12 real-model runs established" (summary),
+and `SESSION_SUMMARY.md` (build phases 0–5). Suite: **126 tests green**.
+
+**Remote (public):** https://github.com/KaiDavisTechEngineer/agora — `origin/main`
+tracks local `main`; push after committing so the backup stays current.
 
 ## Run status
 
