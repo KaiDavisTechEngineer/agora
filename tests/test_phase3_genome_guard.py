@@ -213,3 +213,23 @@ def test_allowlisted_param_actually_reaches_the_colony():
         rows = [json.loads(l) for l in open(logs[0]) if l.strip()]
         start = next(r for r in rows if r["event"] == "start")
         assert start["k_peers"] == 1
+
+
+def test_evolve_threads_proposer_max_tokens_to_inner_colonies(monkeypatch):
+    """evolve() must pass proposer_max_tokens through to every inner colony Config
+    (mirrors trickle's plumbing) — captured via a wrapped Colony."""
+    seen = []
+    real_colony = ev.Colony
+
+    class _Spy(real_colony):
+        def __init__(self, cfg, oracle_name="rotary", cost_tracker=None):
+            seen.append(cfg.proposer_max_tokens)
+            super().__init__(cfg, oracle_name, cost_tracker=cost_tracker)
+
+    monkeypatch.setattr(ev, "Colony", _Spy)
+    with tempfile.TemporaryDirectory() as tmp:
+        evolve(steps=1, cap=5.0, real=False, battery=["and3"], inner_cycles=2,
+               out_dir=os.path.join(tmp, "runs"),
+               evolve_log=os.path.join(tmp, "e.jsonl"), quiet=True,
+               proposer_max_tokens=2000)
+    assert seen and set(seen) == {2000}          # every inner colony got the budget
