@@ -15,7 +15,7 @@ tests green**, tree clean at commit `2ec1e23`.
 | 5 | Sonnet, parity4 @600 tok | no win; 90% truncated (emission bottleneck) | $0.5850 |
 | 6 | Sonnet, parity4 @2000 tok | **verified ✅** at optimum (108.0); falsifier confirmed emission | $0.7331 |
 | **7** | **Haiku, parity4 @2000 tok** | no win (reasoning-bound, mean out 209 tok) — **but FIRST ACCEPTED MUTATION** 🧬 | $0.2600 |
-| **8** | **parity5 (k=5), Sonnet prop. @2000** | **NOT LAUNCHED — the next action** | — |
+| **8** | **parity5 (k=5), Sonnet prop. @2000, cap $2.63** | **verified ✅ both evals** — 51 ops vs 36-op ref: correct but not minimal; minimality is the new frontier | $1.2840 |
 
 **Run 7 detail (the milestone):** the trickle step accepted its mutation for the first
 time in seven runs. A Sonnet-authored rewrite of the `constructor` flavor improved
@@ -30,11 +30,13 @@ Oracle fitness `(0, 62.5) → (0, 81.25)` — the **mutated-genome eval climbed 
 
 ## Spend
 
-**Cumulative: $2.3689 / $5.00 (47.4%); $2.6311 remaining.**
+**Cumulative: $3.6529 / $5.00 (73%); $1.3471 remaining.**
 Standing rules (also in memory `agora-spend-authorization`): $5.00 total envelope,
-runs pre-approved within it; default per-run cap $3.50, but **fit-don't-skip** — Run 8's
-cap must be **$2.63** (= 5.00 − 2.3689). Per-run `--cap` + `halt_before_overspend`
-machinery unchanged.
+runs pre-approved within it; default per-run cap $3.50, but **fit-don't-skip** — the
+next run's cap must be **$1.34**. Per-run `--cap` + `halt_before_overspend` machinery
+unchanged. **The authorized sequence is complete** — further runs are proposals only
+(see RESULTS.md Run 8 § for the three candidates: minimization probe, evolution
+battery, or stop).
 
 ## Invariants I1–I4 — status: all held, every run
 
@@ -50,8 +52,11 @@ machinery unchanged.
 
 ## Exact next steps
 
-1. **Launch Run 8** (frontier probe — where does Sonnet's *reasoning* stop, now that
-   emission is solved):
+> **Status update: steps 1–2 are DONE** (Run 8 launched, verified, documented,
+> committed). Remaining: step 3 — proposals only — and the optional $0 follow-ups.
+> Kept below for the record of what was queued at handoff time.
+
+1. ~~**Launch Run 8**~~ *(done — verified ✅, see RESULTS.md)*:
    ```bash
    cd ~/Downloads/agora && rm -rf /tmp/agora_real && mkdir -p /tmp/agora_real
    python3 -m agora.integrate --real --difficulty 3 --target parity5 --cap 2.63 \

@@ -576,3 +576,70 @@ accepted mutation is an allowlisted `flavor` on a proposer; I4 — it persisted 
 after re-passing the same Oracle gate with strictly better fitness.
 
 **Cumulative real spend: $2.1089 + $0.2600 = $2.3689 / $5.00 (47%).**
+
+---
+
+# Run 8 — frontier probe: `parity5` (k=5) VERIFIED — correct but not minimal ✅*
+
+Sonnet proposer / Haiku critic+validator, `--target parity5` (32-row table, 36-op
+reference, `max_ops=52`), `--proposer-max-tokens 2000`, `--cap 2.63` (fit rule). Exit 0.
+
+| metric | Run 6 (parity4) | **Run 8 (parity5)** |
+|---|---:|---:|
+| **Z3-verified win** | YES, at optimum (108.0) | **YES, both evals** — but bloated |
+| best score | 108.0 = optimum | **101.0** (optimum = 116) |
+| winner size | 20 ops = reference | **51 ops vs 36-op reference** |
+| `parse_fallback` | 11 (~23%) | **21 (~44%)** |
+| Sonnet mean output | 527 / 2000 tok | **1026 / 2000 tok** |
+| spend | $0.7331 | **$1.2840 / $2.63** |
+
+**The frontier answer: Sonnet's correctness reasoning does NOT stop at k=5.** It
+synthesized a formula Z3-proves equivalent to 5-input parity — a classically hard,
+non-linearly-separable function — on **both** evaluations, reaching full correctness by
+cycle 1 and shaving one operator by cycle 3 (100.0 → 101.0). What *did* degrade is
+**minimization**: at parity4 it landed exactly on reference parsimony; at parity5 it
+produced 51 ops against a 36-op reference. Notably the minimal XOR-fold is only ~430
+JSON tokens — well within the 2000 budget — so the bloat is a genuine *reasoning* gap
+(structuring the minimal decomposition), not an emission limit on the answer itself.
+
+**But emission pressure is rising again:** mean reply length doubled (527 → 1026) and
+~44% of replies still failed to parse at the 2000 cap. The two constraints are now
+*intertwined*: a model that reasoned its way to the compact XOR-fold would also emit
+far fewer tokens. The ladder's next rung is no longer a single bottleneck.
+
+**Updated ladder:**
+
+| target | ref ops | outcome |
+|---|---:|---|
+| and3 | 1 | Haiku, verified at optimum (Run 3) |
+| majority3 | 4 | Sonnet @600, verified at optimum (Run 4) |
+| parity4 | 20 | Sonnet @2000, verified at optimum (Run 6) |
+| parity5 | 36 | **Sonnet @2000, verified at 51 ops — correctness holds, minimality is the new frontier (Run 8)** |
+
+**Self-improvement / spend / invariants:**
+- Trickle mutation **rejected, correctly and informatively again**: mutated genome also
+  verified (`(1, 100.0)`) but lost to `(1, 101.0)` on score — the gate discriminating
+  verified solutions on parsimony, second time on real models.
+- Spend reconciles: **Sonnet $1.1123 / 49 calls + Haiku $0.1717 / 104 calls = $1.2840
+  = total** (the engagement's most expensive run — doubled reply lengths bill real
+  output tokens); 49% of the $2.63 cap; guard armed, never fired.
+- **Invariants:** I1 — both certificates true Z3 proofs; I2 — $1.2840 ≤ $2.63,
+  per-model reconciles; I3 — only the allowlisted `flavor` mutation; I4 — re-passed
+  the gate, lost on strict fitness, not persisted.
+
+**Cumulative real spend: $2.3689 + $1.2840 = $3.6529 / $5.00 (73%); $1.3471 remaining.**
+
+## Engagement sequence complete — proposals only from here
+
+Per the standing rule, no further runs without authorization. Under the fit rule the
+next run's cap would be **$1.34**. Candidates, in order of value:
+1. **Minimization probe (~$0.5–0.9):** parity5 with a minimality-focused constructor
+   flavor (or seeding `BEST_KNOWN` with the verified 51-op solution and letting
+   `minimizer` work) — asks whether the parsimony gap closes with steering, the way
+   the correctness gap closed with emission room.
+2. **Genome-evolution battery (~$0.8–1.3):** multi-step `evolve` over
+   `majority3,parity4` with the Run-7-accepted genome as the starting point — compound
+   accepts across targets, exercising sustained real-model evolution.
+3. **Stop here** — the engagement already has: 5 verified wins across 4 targets, a
+   confirmed three-rung bottleneck ladder, the first gate-passed mutation accept, and
+   $1.35 of envelope unspent.
