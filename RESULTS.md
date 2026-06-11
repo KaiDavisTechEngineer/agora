@@ -409,6 +409,7 @@ a *reasoning* ceiling curve.
 generate/revise; a small, post-gate plumbing knob — the gate, scoring, and cap stay
 untouched; `halt_before_overspend` already prices the worst case conservatively).
 Estimated cost ~$0.60–1.00 at `--cap 1.50`.
+*(Subsequently executed as Run 6, below — the emission branch held: parity4 cracked.)*
 - If parse_fallbacks collapse and the curve climbs off 50.0 → the k=4 ceiling was
   emission, and the table above becomes a genuine reasoning ladder again.
 - If fallbacks collapse but the score still plateaus below 100 → *that* is the first
@@ -431,3 +432,87 @@ cap; the pre-call guard never had to fire; I1–I4 held on all five runs.
 
 **Stopping here per instruction** — Run 5 plateaued, so the next move (the max_tokens
 falsifier, the parity3 half-step, or something else) is the user's call.
+
+---
+
+# Run 6 — the max_tokens falsifier: `parity4` CRACKED ✅ (emission branch confirmed)
+
+User-authorized falsifier. **One variable changed vs Run 5:** proposer `max_tokens`
+600 → 2000 (new post-gate knob `Config.proposer_max_tokens`, commit `9b18135`),
+`--cap 1.50`. Same Sonnet proposer / Haiku critic+validator, same `parity4`, same seed.
+Exit 0.
+
+## Before/after — the truncation hypothesis, quantified
+
+| metric | Run 5 (cap 600) | **Run 6 (cap 2000)** |
+|---|---:|---:|
+| **Z3-verified win** | none | **YES — both evals** ✅ |
+| best score | 50.0 (fallback floor) | **108.0 = estimated optimum** (cur); 103.0 (cand) |
+| score curve | flat 50.0, 8 cycles | **108.0 from cycle 1**, held |
+| `parse_fallback` | 43 (~90% of replies) | **11 (~23%)** |
+| Sonnet mean output tokens | 522 vs **600 cap (87%, tail clipped)** | **527 vs 2000 cap (26%, unclipped)** |
+| spend | $0.5850 / $1.00 | $0.7331 / $1.50 |
+
+The mean-output column is the smoking gun: Sonnet's natural reply length on parity4 is
+~520–530 tokens *in both runs*. At a 600 cap that meant every reply in the upper tail
+was truncated mid-JSON (90% unparseable); at 2000 the same distribution fits and the
+formulas arrive whole. The model didn't get smarter — **it was finally allowed to
+finish speaking.**
+
+## Branch interpretation (as specified up front)
+
+> *If cracked, the failure ladder is confirmed (formatting → reasoning → emission).*
+
+**Cracked — the ladder is confirmed.** Sonnet solved 4-input parity immediately (cycle
+1) once the emission budget fit the answer: the verified winner scores **108.0 = the
+estimated optimum** — 100 (all 16 truth-table rows, Z3-proven) + 8 parsimony (20
+operators, exactly the programmatic XOR-fold reference's size; by structure it *is* the
+standard XOR decomposition `(x∨y)∧¬(x∧y)` composed over 4 variables). Run 5's plateau
+is now positively identified as an emission artifact, not a reasoning ceiling, and the
+op-count ladder is un-confounded again:
+
+| target | ref ops | cracked by |
+|---|---:|---|
+| and3 | 1 | Haiku (Run 3) |
+| majority3 | 4 | Sonnet, at optimum parsimony (Run 4) |
+| parity4 | 20 | **Sonnet, at optimum parsimony, given room to emit (Run 6)** |
+
+## Self-improvement / spend / invariants
+
+- **Trickle mutation rejected — and this one is informative:** the mutated genome *also
+  produced a Z3-verified win* (fitness `(1, 103.0)`) but at lower parsimony than the
+  current genome's `(1, 108.0)`; strict lexicographic comparison rejected it. The gate
+  is now discriminating between two *real verified* solutions on minimality, exactly as
+  designed. Audit: 1 reject, 0 accepted; genome baseline; rotation 0 → 1.
+- Remaining 11 fallbacks (~23%): occasional over-long reasoning or non-JSON replies —
+  no longer load-bearing; the loop verified in cycle 1 regardless.
+- Spend reconciles: **Sonnet $0.5963 / 49 calls + Haiku $0.1368 / 104 calls = $0.7331 =
+  total**; 49% of the $1.50 cap; guard armed, never fired.
+- **Invariants:** I1 — both certificates are true Z3 proofs; I2 — $0.7331 ≤ $1.50,
+  per-model reconciles; I3 — only the allowlisted `flavor` mutation + the pre-declared
+  `proposer_max_tokens` plumbing (post-gate; affects what an agent may *say*, never how
+  it is judged); I4 — the mutated genome re-passed the gate and was rejected on strict
+  fitness, not persisted.
+
+**Cumulative real spend: $1.3758 + $0.7331 = $2.1089 / $5.00 (42%); $2.8911 remaining.**
+
+## Proposed next steps (not executed — per standing instruction)
+
+Cap arithmetic under the standing rules: the $3.50 default per-run cap no longer fits
+($2.1089 + $3.50 > $5.00), so the next run would be capped at **$2.89** (fit, don't skip).
+
+1. **Difficulty 3 (`parity5` or `majority5`, k=5) with the Run 6 config** — the natural
+   next rung now the ladder is clean. parity5's reference is 36 ops (~430 JSON tokens);
+   `--proposer-max-tokens 2000` already covers it. Est. ~$0.8–1.4 at cap $2.89. This
+   asks the now-well-posed question: where does Sonnet's *reasoning* actually stop?
+2. **Re-probe Haiku on parity4 at 2000 tokens** (~$0.3) — was Haiku's majority3 failure
+   *also* partly emission? If Haiku cracks parity4 with room to speak, the Run 1/2→4
+   "reasoning" attribution needs the same scrutiny Run 5's did. Cheap epistemic hygiene.
+3. **Genome-evolution probe** (~$1.0+): every trickle mutation so far was correctly
+   rejected (baseline already at/near optimum per target). A multi-step `evolve` over a
+   battery where the baseline *doesn't* verify everywhere (e.g. `majority3,parity4` at
+   600 tokens for the constructor only) is the first setting where an accepted mutation
+   is plausibly *earnable* — exercising the accept path of I4 on real models.
+
+Recommendation: **2 then 1** — 2 is cheap and protects the engagement's headline causal
+claim; 1 is the genuine frontier probe. Both fit the remaining envelope together.
