@@ -143,3 +143,31 @@ def test_proposer_max_tokens_reaches_generate_and_revise():
         assert by_stage.get("revise", {2000}) == {2000}
         assert by_stage["critique"] == {160}       # critic budget untouched
         assert by_stage["audit"] == {160}          # validator budget untouched
+
+
+# --------------------------------------------------------- warm-start seeding
+def test_seed_best_reaches_agents_and_scoring_is_untouched():
+    """Config.seed_best becomes the colony's starting BEST_KNOWN: agents see it,
+    the best-score floor starts at its Oracle score, and verification still runs
+    on whatever ends up best (no gate/scoring change)."""
+    import os, tempfile
+    from agora.config import Config
+    from agora.colony import Colony
+    from agora.roles import FORMAL_ROSTER
+
+    ref = O._ref                                     # majority3 reference (verified)
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = Config(use_mock=True, n_cycles=2, seed=3, patience=99, n_agents=6,
+                     roster=FORMAL_ROSTER, oracle_kwargs={"target": "majority3"},
+                     seed_best=ref, resume=False,
+                     state_file=os.path.join(tmp, "s.json"),
+                     log_file=os.path.join(tmp, "l.jsonl"),
+                     curve_file=os.path.join(tmp, "c.csv"))
+        col = Colony(cfg, "formula")
+        assert col.global_best == ref                # seeded before the first cycle
+        assert col.global_best_score == O.score(ref)
+        s = col.run()
+        assert s["best_score"] >= O.score(ref)       # the seed is a floor, never lost
+        assert s["verified"] is True                 # the gate still judges the best
+    # default stays None -> no behavior change for every other run
+    assert Config().seed_best is None

@@ -72,6 +72,12 @@ class Colony:
         for a in self.agents:
             a.flavor_override = cfg.flavor_overrides.get(a.role)
 
+        # warm start: seed BEST_KNOWN with a prior candidate (resumed state wins).
+        # Only what agents SEE changes — scoring and verification are untouched.
+        if cfg.seed_best is not None and self.global_best is None:
+            self.global_best = self.oracle.normalize(cfg.seed_best)
+            self.global_best_score = self.oracle.score(self.global_best)
+
         # A shared CostTracker (passed in) makes the spend cap a single GLOBAL budget
         # across many colony runs — exactly what the #6 meta-loop needs. When absent,
         # each colony meters itself (and can resume a prior balance from disk).

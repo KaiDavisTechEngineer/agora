@@ -34,6 +34,13 @@ class Config:
     # --- difficulty (frontier #1: how hard a verifiable target to attempt) ---
     difficulty: int = 1          # 1=k3 (easy) .. 3=k5 (hard); selects formula targets
 
+    # --- warm start ---
+    # Seed the colony's global_best with a known candidate (e.g. a prior run's verified
+    # solution) so agents start FROM it — the minimizer's natural fuel. Post-gate
+    # plumbing: it changes what agents SEE as BEST_KNOWN, never how candidates are
+    # scored or verified. Ignored when resuming saved state (state wins).
+    seed_best: dict | None = None
+
     # --- proposer output budget ---
     # max_tokens for proposer generate/revise calls. Large-AST targets (parity4's
     # reference is ~240 JSON tokens, plus the model's prose) truncate at 600 and the
