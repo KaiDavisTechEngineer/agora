@@ -810,3 +810,51 @@ reconciles trivially; I3/I4 — n/a (no mutation step; pure measurement run).
 overage under the explicit "money is not the constraint" authorization. Every run ≤ its
 cap; the pre-call guard never fired; **zero false certificates in ~1,600 real calls
 across 11 runs; I1–I4 held throughout.**
+
+---
+
+# Run 12 — flavor-transfer test: NEGATIVE transfer to Sonnet ✗ (and the gate would catch it)
+
+Does the Run-7 gate-accepted flavor (earned on Haiku/parity4, proven causal for Haiku
+on majority3 in Run 11) help **Sonnet** where Sonnet is weak — parity5 parsimony?
+Exact mirror of Run 8's first evaluation (Sonnet proposer / Haiku critic+validator,
+parity5, 4 cycles, seed 7, @2000) with **one variable: `flavor_overrides` = the Run-7
+genome** instead of stock. Cap $1.00. Exit 0.
+
+| | stock flavors (Run 8 control) | **Run-7 evolved genome (Run 12)** |
+|---|---:|---:|
+| Z3-verified | YES | **YES** (correctness held) |
+| best score | 101.0 | **100.0** |
+| winner size | 51 ops | **75 ops — substantially MORE bloated** |
+| `parse_fallback` | 12 | 15 |
+| Sonnet mean output | 1026 tok | 1076 tok |
+| spend | $0.6029 | $0.6236 / $1.00 |
+
+**Verdict — negative transfer.** The minimality-emphatic flavor ("smallest possible…
+ruthlessly minimize"), which demonstrably *caused* Haiku's verified majority3 win,
+made Sonnet's parity5 output **worse on exactly the dimension the words demand**:
+75 ops vs 51. Evolved strategy text is model- (and context-) specific — instructions
+that focus a weaker model can apparently distract or over-constrain a stronger one.
+(Single-seed A/B, n=1 per arm — directional, stated with that caveat.)
+
+**The system-level reassurance:** by the gate's own ordering, `(1, 100.0) <
+(1, 101.0)` — if porting this flavor to a Sonnet colony were proposed *as a mutation*,
+the same verifier gate that accepted it for Haiku would **reject it for Sonnet**. The
+architecture already contains the defense against naive cross-model genome reuse:
+genomes are only ever adopted through a fitness re-pass in their deployment context
+(I4), never by assumption of transfer.
+
+**Invariants:** I1 — honest verified verdicts both arms; I2 — $0.6236 ≤ $1.00,
+per-model reconciles (Sonnet $0.5442/24c + Haiku $0.0793/52c); I3/I4 — n/a (pure
+measurement run; no mutation proposed or persisted).
+
+**Final cumulative (Runs 1–12): $5.5910 + $0.6236 = $6.2146**
+(Haiku $2.5405 + Sonnet $3.6741 ✓). All overage beyond the original $5.00 envelope
+under the standing authorization. **I1–I4 held on all 12 runs; zero false certificates
+in ~1,700 real calls.**
+
+**The genome-transfer picture, complete:** the Run-7 flavor is *Haiku-specific* —
+causal for Haiku (Run 11 A/B), a local optimum under further Haiku mutation (Run 10),
+and negative-transfer to Sonnet (Run 12). Self-improvement in this system is real but
+**contextual**: what the gate certifies is "better *for this colony*," and the gate
+itself is what keeps that claim from being over-generalized.

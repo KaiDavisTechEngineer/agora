@@ -20,12 +20,15 @@ tests green**, tree clean at commit `2ec1e23`.
 | 10 | evolution battery: evolve(steps=4), Haiku ×3 @2000, majority3+parity4, from Run-7 genome (no extra steering — per Run 9 data), cap $2.00 | **evolved genome GENERALIZED: Haiku verified majority3 at optimum** ✅ (stock Haiku never did); all 4 mutations degraded fitness and were gate-rejected — local optimum, gate defends | $1.0191 |
 
 | 11 | falsifier: stock Haiku @2000, majority3 (exact Run-10-baseline mirror, genome the only variable) | **87.5, NOT verified** → budget confound eliminated; **Run 10 headline airtight: the evolved genome caused the verified win** | $0.0723 |
+| 12 | flavor-transfer test: Run-7 genome on Sonnet, parity5 (exact Run-8 mirror, genome the only variable) | **NEGATIVE transfer** — still verified, but 75 ops / 100.0 vs stock 51 ops / 101.0; the gate's own ordering would reject the port. Evolved strategies are model-contextual | $0.6236 |
 
-**ENGAGEMENT COMPLETE.** Final: **$5.5910 total over 11 runs** (Haiku $2.4612 + Sonnet
-$3.1298; original $5.00 envelope exceeded by $0.5910 under explicit authorization).
-**7 verified wins; 1 gate-accepted mutation — proven causal for a verified win by the
-Run 11 A/B**; I1–I4 held on all 11 runs; zero false certificates in ~1,600 real calls.
-Full reconciliation: RESULTS.md § Run 11. No runs in flight; no background processes.
+**ENGAGEMENT COMPLETE.** Final: **$6.2146 total over 12 runs** (Haiku $2.5405 + Sonnet
+$3.6741; original $5.00 envelope exceeded by $1.2146 under explicit authorization).
+**8 verified-win runs; 1 gate-accepted mutation — proven causal for Haiku (Run 11
+A/B), local-optimal under further mutation (Run 10), and negative-transfer to Sonnet
+(Run 12): self-improvement is real but contextual, and the gate is what keeps it
+honest.** I1–I4 held on all 12 runs; zero false certificates in ~1,700 real calls.
+Full reconciliation: RESULTS.md § Run 12. No runs in flight; no background processes.
 Committed snapshot of the accepted genome: `genome_run7_first_accept.json`.
 
 **Run 7 detail (the milestone):** the trickle step accepted its mutation for the first
