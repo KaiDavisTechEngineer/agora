@@ -1,5 +1,7 @@
 # agora
 
+> Repo: **https://github.com/KaiDavisTechEngineer/agora** (public)
+
 A co-scientist **agent society**: a population of role-playing agents that propose
 candidates, critique each other, revise, and get scored by a swappable **Oracle** —
 looping until they converge, hit a budget, or you stop them. Built cost-first
