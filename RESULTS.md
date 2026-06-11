@@ -274,3 +274,52 @@ I2 — $0.1389 ≤ $0.50, per-model sums reconcile; I3 — only an allowlisted p
 `flavor` mutation; I4 — mutation re-passed the gate, didn't improve, not persisted.
 
 **Cumulative real spend: $0.3716 + $0.1389 = $0.5105 / $5.00.**
+
+---
+
+# Run 4 — Sonnet proposer on `majority3` (CRACKED, beat the reference) ✅
+
+Step 2 of the plan: a `claude-sonnet-4-6` proposer (critic/validator stay Haiku),
+`majority3`, `--cap 1.00`. Same loop, only the proposer model changed from Run 1/2.
+
+| metric | Run 1 (Haiku) | Run 2 (Haiku) | **Run 4 (Sonnet prop.)** |
+|---|---:|---:|---:|
+| **Z3-verified `majority3`** | none | none | **YES ✅** |
+| best score | 87.5 (7/8) | 87.5 (7/8) | **116.0 (8/8, verified)** |
+| `parse_fallback` | 35 | 0 | **0** (Sonnet needs no prefill) |
+| `api_error` | 0 | 0 | 0 |
+| spend | $0.2253 | $0.1463 | **$0.2803** (cap 1.00) |
+
+**Result — the Haiku reasoning ceiling was the cause.** With a Sonnet proposer the loop
+verified `majority3`, and the winning formula is **smaller than the canonical reference**:
+```json
+{"op":"or","args":[
+  {"op":"and","args":[{"var":"a"},{"var":"b"}]},
+  {"op":"and","args":[{"var":"c"},{"op":"or","args":[{"var":"a"},{"var":"b"}]}]}]}
+```
+`(a∧b) ∨ (c∧(a∨b))` — **4 operators**, vs the hand-written reference's 5. Score **116.0**
+actually **exceeds the estimated optimum (115)** because the reference wasn't truly
+minimal. A real agent found a *better-than-reference* solution, Z3-confirmed equivalent.
+
+This is the clean A/B: Runs 1–2 (Haiku proposer) plateaued at 7/8; Run 4 (Sonnet
+proposer, everything else identical) reached 8/8 + minimal. The bottleneck was proposer
+reasoning, exactly as Run 3 implied.
+
+**Self-improvement / explainability / spend:**
+- Trickle mutation **rejected** (the genome already verifies at near-minimal size; nothing
+  beat it). Audit: 1 reject, 0 accepted; genome baseline; rotation 0 → 1.
+- Explanatory (P2×P4 cross-frontier): proposer Elo attributed to **`claude-sonnet-4-6`**
+  (`generalizer` +31.5 winner), critic credit to **`claude-haiku-4-5-20251001`**
+  (`counterexample_hunter`/`triviality_skeptic` +25.0 each, now with decisive revisions —
+  e.g. cycle 2 a Haiku critique moved a Sonnet proposer +11.6 Elo on a +28.5 revision).
+  `constructor` authored both verified wins.
+- Spend reconciles: **Sonnet $0.1816 / 49 calls** (generate+revise+1 meta) + **Haiku
+  $0.0987 / 104 calls** (critique+audit) = **$0.2803 = total**; **28% of the $1.00 cap**;
+  guard armed, never fired.
+
+**Invariants (Run 4):** I1 — true Z3 certificate; I2 — $0.2803 ≤ $1.00, per-model
+reconciles; I3 — only an allowlisted post-gate `flavor` mutation; I4 — mutation
+re-passed the gate, didn't improve, not persisted.
+
+**Cumulative real spend: $0.5105 + $0.2803 = $0.7908 / $5.00.** A verified → plan
+proceeds to Run 5 (difficulty 2).
