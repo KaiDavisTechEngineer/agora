@@ -33,7 +33,7 @@ def integrated_run(difficulty=2, cap=5.00, real=False, target=None,
                    role_models=None, genome_path="genome.json", inner_cycles=4,
                    out_dir="runs", evolve_log="evolve_log.jsonl", seed=7,
                    quiet=False, cost=None, propose_mutation=None,
-                   halt_before_overspend=True):
+                   halt_before_overspend=True, proposer_max_tokens=600):
     """Run the integrated P2->P1->P3->P4 flow. Returns a structured result.
 
     `cost` lets a caller pass a pre-existing shared CostTracker (the single global
@@ -56,7 +56,8 @@ def integrated_run(difficulty=2, cap=5.00, real=False, target=None,
                  inner_cycles=inner_cycles, out_dir=out_dir, evolve_log=evolve_log,
                  seed=seed, quiet=True, cost=cost, role_models=role_models,
                  propose_mutation=propose_mutation,
-                 halt_before_overspend=halt_before_overspend)
+                 halt_before_overspend=halt_before_overspend,
+                 proposer_max_tokens=proposer_max_tokens)
 
     # P4 explanatory trace, read back from the logs this run produced
     report = analyze(run_dir=out_dir, evolve_log=evolve_log)
@@ -93,6 +94,9 @@ def main(argv=None):
     p.add_argument("--critic-model", default=None)
     p.add_argument("--validator-model", default=None)
     p.add_argument("--cycles", type=int, default=4, help="inner colony cycles")
+    p.add_argument("--proposer-max-tokens", type=int, default=600,
+                   help="output budget for proposer generate/revise calls "
+                        "(raise for large-AST targets; default 600)")
     p.add_argument("--out-dir", default="runs")
     p.add_argument("--evolve-log", default="evolve_log.jsonl")
     p.add_argument("--genome", default="genome.json")
@@ -105,7 +109,8 @@ def main(argv=None):
     integrated_run(difficulty=args.difficulty, cap=args.cap, real=args.real,
                    target=args.target, role_models=role_models,
                    genome_path=args.genome, inner_cycles=args.cycles,
-                   out_dir=args.out_dir, evolve_log=args.evolve_log, seed=args.seed)
+                   out_dir=args.out_dir, evolve_log=args.evolve_log, seed=args.seed,
+                   proposer_max_tokens=args.proposer_max_tokens)
 
 
 if __name__ == "__main__":

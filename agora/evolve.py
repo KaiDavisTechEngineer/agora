@@ -377,7 +377,7 @@ def trickle(genome_path="genome.json", cap=0.50, real=False, battery=None,
             inner_cycles=2, inner_agents=None, seed=7, out_dir="runs",
             evolve_log="evolve_log.jsonl", quiet=False, cost=None,
             oracle_name="formula", roster=None, propose_mutation=None,
-            role_models=None, halt_before_overspend=False):
+            role_models=None, halt_before_overspend=False, proposer_max_tokens=600):
     """A gentle, ACCUMULATING entry point: exactly ONE attempt per invocation.
 
     Loads the persisted genome, rotates to ONE target, evaluates the current genome
@@ -409,7 +409,8 @@ def trickle(genome_path="genome.json", cap=0.50, real=False, battery=None,
     base_cfg = Config(n_agents=inner_agents, roster=roster, n_cycles=inner_cycles,
                       patience=inner_cycles, spend_cap_usd=cap, use_mock=not real,
                       seed=seed, quiet=True, role_models=role_models,
-                      halt_before_overspend=halt_before_overspend)
+                      halt_before_overspend=halt_before_overspend,
+                      proposer_max_tokens=proposer_max_tokens)
     elog.emit("trickle_start", target=target, role=role, rotation_index=rot,
               genome=genome, params=params, real=real)
     if not quiet:

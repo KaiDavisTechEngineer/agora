@@ -34,6 +34,13 @@ class Config:
     # --- difficulty (frontier #1: how hard a verifiable target to attempt) ---
     difficulty: int = 1          # 1=k3 (easy) .. 3=k5 (hard); selects formula targets
 
+    # --- proposer output budget ---
+    # max_tokens for proposer generate/revise calls. Large-AST targets (parity4's
+    # reference is ~240 JSON tokens, plus the model's prose) truncate at 600 and the
+    # reply parses as nothing (Run 5: 90% parse-fallbacks at 522/600 avg). Post-gate
+    # plumbing only — affects how much an agent may SAY, never how it is judged.
+    proposer_max_tokens: int = 600
+
     # --- pluggability (used by the self-improvement meta-loop, #6) ---
     oracle_kwargs: dict = field(default_factory=dict)     # passed to the Oracle constructor
     flavor_overrides: dict = field(default_factory=dict)  # role_name -> flavor; the evolvable "genome"

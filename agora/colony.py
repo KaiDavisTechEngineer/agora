@@ -181,6 +181,7 @@ class Colony:
         for a in proposers:
             sys = self.oracle.system_prompt(a.flavor)
             r = self._complete(prop_model, sys, a.context(self.global_best, self.shared),
+                               max_tokens=cfg.proposer_max_tokens,
                                stage="generate", cycle=cycle, role=a.role, prefill="{")
             cand, fell_back = _parse_candidate(r.text, self.oracle)
             if fell_back:
@@ -213,6 +214,7 @@ class Colony:
                     continue
                 msg = self.oracle.revise_prompt(proposals[a.id], crits)
                 r = self._complete(prop_model, self.oracle.system_prompt(a.flavor), msg,
+                                   max_tokens=cfg.proposer_max_tokens,
                                    stage="revise", cycle=cycle, role=a.role, prefill="{")
                 revised, fell_back = _parse_candidate(r.text, self.oracle)
                 if fell_back:
